@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CarAmbient"
 include(":app")
+include(":guestbook")
