@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Car readings stamped on each signature. The car may refuse these; the app works without them. -->
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" />
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+
+    <!-- Only needed to save pictures to the gallery on Android 9 and older. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <application
+        android:label="Guest Book"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+
+        <!-- The car's own API, if the head unit has it. Optional so the app installs anywhere. -->
+        <uses-library
+            android:name="android.car"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
