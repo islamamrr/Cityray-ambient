@@ -24,3 +24,21 @@ Showing what's playing needs notification access. If the car's settings screen h
 ```
 adb shell cmd notification allow_listener dev.carapps.ambient/dev.carapps.ambient.MediaListenerService
 ```
+
+---
+
+# Car Player
+
+A full-screen remote for whatever music app is playing (Spotify, YouTube Music, the car's own player and so on). It lives in the `player/` folder and builds as its own APK (`CarPlayer-apk` in the run's Artifacts).
+
+- Big album art, with the screen's background and accent colour taken from the cover.
+- Seek bar (when the app allows seeking), previous / play-pause / next, and a volume slider.
+- Swipe the cover left or right to skip; tap it to play or pause.
+- App chips at the top switch between apps that have music loaded. Tap the lit chip to open that app.
+- When nothing is playing, it lists installed music apps to launch.
+
+It needs notification access too. If settings hide it:
+
+```
+adb shell cmd notification allow_listener dev.carapps.player/dev.carapps.player.MediaListenerService
+```
