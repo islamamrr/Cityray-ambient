@@ -16,6 +16,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import dev.carapps.car.CarDecode
 import dev.carapps.car.CarSensor
 import dev.carapps.car.EcarxCar
 import dev.carapps.car.EcarxKeys
@@ -36,12 +37,15 @@ class ProbeActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var tableView: TextView
     private lateinit var logView: TextView
+    private lateinit var keysView: TextView
     private lateinit var keysButton: Button
 
     private var connection = "unknown"
     private val pushCount = HashMap<Int, Int>()
     private val lastChange = HashMap<Int, Long>()
     private val log = ArrayDeque<String>()
+    private val keyLog = ArrayDeque<String>()
+    private val lastSeen = HashMap<Int, String>()
     private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
 
     private val refresh = object : Runnable {
@@ -81,15 +85,18 @@ class ProbeActivity : Activity() {
                 addLog("car service $connection")
             }
 
-            override fun onValueChanged(sensorId: Int, value: Float) = pushed(sensorId, "value=$value")
-            override fun onEventChanged(sensorId: Int, event: Int) = pushed(sensorId, "event=$event")
+            override fun onValueChanged(sensorId: Int, value: Float) = pushed(sensorId, "value=${showValue(value)}")
+            override fun onEventChanged(sensorId: Int, event: Int) = pushed(sensorId, "event=${showEvent(sensorId, event)}")
             override fun onSupportChanged(sensorId: Int, status: String) = pushed(sensorId, "support=$status")
         })
         addLog(if (ok) "started; listening to ${CarSensor.entries.size} sensors" else "start failed: ${car.lastError}")
     }
 
+    /** Counts every push, but only logs a sensor when its value actually changes. */
     private fun pushed(id: Int, what: String) {
         pushCount[id] = (pushCount[id] ?: 0) + 1
+        if (lastSeen[id] == what) return
+        lastSeen[id] = what
         lastChange[id] = SystemClock.elapsedRealtime()
         addLog("${name(id)} $what")
     }
@@ -101,14 +108,16 @@ class ProbeActivity : Activity() {
         }
         val codes = IntArray(KEY_RANGE_SIZE) { KEY_RANGE_START + it }
         val granted = keys.intercept(codes, object : EcarxKeys.Listener {
-            override fun onKeyPressed(code: Int) = addLog("KEY DOWN $code")
-            override fun onKeyReleased(code: Int) = addLog("KEY UP   $code")
+            override fun onKeyPressed(code: Int) = addKey("DOWN $code")
+            override fun onKeyReleased(code: Int) = addKey("UP   $code")
         })
         if (!keys.isHolding) {
             addLog("buttons: failed: ${keys.lastError}")
             return
         }
-        addLog("buttons: listening for ${KEY_LISTEN_SECONDS}s; granted ${granted.size} codes " + summarize(granted))
+        keyLog.clear()
+        addKey("listening for ${KEY_LISTEN_SECONDS}s; granted ${granted.size} codes " + summarize(granted))
+        addKey("press each wheel button once, slowly")
         keysButton.text = "Stop listening to buttons"
         main.postDelayed(stopKeys, KEY_LISTEN_SECONDS * 1000L)
     }
@@ -117,7 +126,7 @@ class ProbeActivity : Activity() {
         main.removeCallbacks(stopKeys)
         if (keys.isHolding) {
             keys.release()
-            addLog("buttons: released ($reason)")
+            addKey("released ($reason)")
         }
         if (::keysButton.isInitialized) keysButton.text = "Listen to wheel buttons (${KEY_LISTEN_SECONDS}s)"
     }
@@ -134,16 +143,35 @@ class ProbeActivity : Activity() {
 
         val now = SystemClock.elapsedRealtime()
         tableView.text = buildString {
-            append(String.format(Locale.US, "%-22s %-10s %-12s %-8s %-7s %s\n", "SENSOR", "ID", "VALUE", "EVENT", "PUSHES", "SUPPORT"))
+            append(String.format(Locale.US, "%-22s %-10s %-14s %-14s %-7s %s\n", "SENSOR", "ID", "VALUE", "EVENT", "PUSHES", "SUPPORT"))
             for (s in CarSensor.entries) {
-                val v = car.latestValue(s.id)?.let { fmt(it) } ?: "-"
-                val e = car.latestEvent(s.id)?.toString() ?: "-"
+                val v = car.latestValue(s.id)?.let { showValue(it) } ?: "-"
+                val e = car.latestEvent(s.id)?.let { showEvent(s.id, it) } ?: "-"
                 val sup = car.supportStatus(s.id) ?: "-"
                 val pushes = pushCount[s.id] ?: 0
                 val fresh = lastChange[s.id]?.let { now - it < 1500 } == true
-                append(String.format(Locale.US, "%-22s %-10s %-12s %-8s %-7d %s%s\n",
+                append(String.format(Locale.US, "%-22s %-10s %-14s %-14s %-7d %s%s\n",
                     s.label, EcarxCar.hex(s.id), v, e, pushes, sup, if (fresh) "  *" else ""))
             }
+        }
+    }
+
+    private fun addKey(line: String) {
+        keyLog.addFirst("${clock.format(Date())}  $line")
+        while (keyLog.size > 40) keyLog.removeLast()
+        if (::keysView.isInitialized) keysView.text = keyLog.joinToString("\n")
+    }
+
+    /** Shows a float, or the integer packed inside it when the sensor sends one that way. */
+    private fun showValue(v: Float): String = CarDecode.packedInt(v)?.let { "int $it" } ?: fmt(v)
+
+    /** Shows an event as base id + offset, with the gear name when we know it. */
+    private fun showEvent(id: Int, e: Int): String {
+        if (e == -1) return "-1"
+        return when (id) {
+            CarSensor.GEAR.id -> "+0x${Integer.toHexString(e - id)} ${CarDecode.gear(e)}?"
+            CarSensor.IGNITION.id -> "+${CarDecode.ignitionStep(e)}"
+            else -> e.toString()
         }
     }
 
@@ -176,10 +204,17 @@ class ProbeActivity : Activity() {
         row.addView(button("Clear log") { log.clear(); logView.text = "" })
         root.addView(row, spaced())
 
+        keysView = text(22f, Color.rgb(255, 220, 120), mono = true).apply {
+            text = "Wheel buttons show up here, newest on top."
+        }.also { root.addView(it, spaced()) }
+
         root.addView(text(13f, Color.LTGRAY).apply {
             text = "While listening, the wheel buttons only show up here and do not do their normal job. It stops by itself after ${KEY_LISTEN_SECONDS} seconds."
         })
 
+        root.addView(text(13f, Color.LTGRAY).apply {
+            text = "Sensor log: only real changes are listed, newest on top."
+        }, spaced())
         logView = text(14f, Color.rgb(180, 255, 180), mono = true).also { root.addView(it, spaced()) }
 
         return ScrollView(this).apply {
