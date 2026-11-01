@@ -37,7 +37,6 @@ A full-screen remote for whatever music app is playing (built around Spotify). I
 - **Up next:** the app's queue. The tab only appears when the app shares its queue.
 - **Sources:** apps that currently have music loaded. Tap the app name at the top to get there.
 - **Play from cold:** with nothing playing, "Resume music" sends a play key to the last music app.
-- **Driving mode:** when the gear leaves P (read through `carlib`), the player hides the tabs and seek bar, makes the buttons bigger and stops the background moving.
 - **Updates:** builds from `main` are published as the `player-latest` release. The app checks it on launch, and Sources shows "Update available" with one-tap install.
 
 It needs notification access too. If settings hide it:

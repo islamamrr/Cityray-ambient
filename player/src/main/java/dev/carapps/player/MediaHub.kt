@@ -65,6 +65,7 @@ class MediaHub(
     private val labels = HashMap<String, String>()
     private val actionIcons = HashMap<String, Drawable?>()
     private val appIcons = HashMap<String, Drawable?>()
+    private val artLoader = ArtLoader(context) { refresh() }
     private var controllers: List<MediaController> = emptyList()
     private var current: MediaController? = null
     private var pinned: String? = null
@@ -238,6 +239,10 @@ class MediaHub(
         val art = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            // Many apps (Spotify among them) send only a link to the cover.
+            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI))
+            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_ART_URI))
+            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI))
         val state = c.playbackState
         onChange(
             Track(
@@ -258,7 +263,7 @@ class MediaHub(
                 },
                 queue = c.queue.orEmpty().map { item ->
                     val d = item.description
-                    QueueEntry(item.queueId, d.title?.toString() ?: "", d.subtitle?.toString() ?: "", d.iconBitmap)
+                    QueueEntry(item.queueId, d.title?.toString() ?: "", d.subtitle?.toString() ?: "", d.iconBitmap ?: artLoader.get(d.iconUri?.toString()))
                 },
                 queueCurrentId = state?.activeQueueItemId ?: -1L,
             ),

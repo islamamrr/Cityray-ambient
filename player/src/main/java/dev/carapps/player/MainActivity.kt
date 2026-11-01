@@ -14,7 +14,6 @@ class MainActivity : Activity() {
 
     private lateinit var player: PlayerView
     private lateinit var media: MediaHub
-    private lateinit var drive: DriveWatcher
     private lateinit var updater: Updater
     private var update: Updater.Release? = null
     private lateinit var lyricsStore: LyricsStore
@@ -32,7 +31,6 @@ class MainActivity : Activity() {
             player.setTrack(track, sources, media.hasAccess())
             if (track != null) loadLyrics(track)
         }
-        drive = DriveWatcher(this) { driving -> player.driving = driving }
         updater = Updater(this)
 
         player.listener = object : PlayerView.Listener {
@@ -70,11 +68,9 @@ class MainActivity : Activity() {
         hideSystemBars()
         media.start()
         player.launchApps = findMusicApps()
-        drive.start()
     }
 
     override fun onPause() {
-        drive.stop()
         media.stop()
         super.onPause()
     }

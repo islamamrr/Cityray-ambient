@@ -35,7 +35,6 @@ class LaunchApp(val packageName: String, val label: String, val icon: Drawable)
 /**
  * The whole player, drawn by hand on a Canvas: a top bar, three tabs (Now playing,
  * Up next, Sources) and a bottom dock. Colours follow the album art.
- * In driving mode only Now playing remains, with bigger controls and no seek bar.
  */
 class PlayerView(context: Context) : View(context) {
 
@@ -59,13 +58,6 @@ class PlayerView(context: Context) : View(context) {
     var launchApps: List<LaunchApp> = emptyList()
         set(v) {
             field = v
-            invalidate()
-        }
-
-    var driving = false
-        set(v) {
-            field = v
-            if (v) tab = Tab.NOW
             invalidate()
         }
 
@@ -216,7 +208,8 @@ class PlayerView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        u = w / 100f
+        // One unit is 0.72% of the width: sized for the 13" screen, where 1% read too large.
+        u = w / 100f * 0.72f
         val now = SystemClock.uptimeMillis()
         var animating = false
 
@@ -228,11 +221,11 @@ class PlayerView(context: Context) : View(context) {
         if (drawBackground(canvas, w, h, now)) animating = true
 
         val top = drawTopBar(canvas, w)
-        val showDock = hasAccess && !driving
+        val showDock = hasAccess
         val bottom = if (showDock) drawDock(canvas, w, h) else h - 4f * u
 
         // Tabs fade in when switched.
-        val fade = if (driving) 1f else ((now - tabFadeStart) / 250f).coerceIn(0f, 1f)
+        val fade = ((now - tabFadeStart) / 250f).coerceIn(0f, 1f)
         if (fade < 1f) animating = true
         val layer = if (fade < 1f) canvas.saveLayerAlpha(0f, top, w, bottom, (255 * fade).toInt()) else -1
 
@@ -261,8 +254,7 @@ class PlayerView(context: Context) : View(context) {
 
         when {
             animating || target != Target.NONE -> postInvalidateOnAnimation()
-            // Driving: no drifting background, just keep the clock and progress moving.
-            t?.isPlaying == true && !driving -> postInvalidateDelayed(50)
+            t?.isPlaying == true -> postInvalidateDelayed(50)
             else -> postInvalidateDelayed(1000)
         }
     }
@@ -271,10 +263,9 @@ class PlayerView(context: Context) : View(context) {
     private fun drawBackground(canvas: Canvas, w: Float, h: Float, now: Long): Boolean {
         canvas.drawColor(0xFF07080B.toInt())
         val fade = ((now - bgFadeStart) / 900f).coerceIn(0f, 1f)
-        val still = driving
-        val zoom = 1.35f + if (still) 0f else 0.05f * sin(now / 9000.0).toFloat()
-        val dx = if (still) 0f else sin(now / 13000.0).toFloat() * 4f * u
-        val dy = if (still) 0f else sin(now / 17000.0).toFloat() * 4f * u
+        val zoom = 1.35f + 0.05f * sin(now / 9000.0).toFloat()
+        val dx = sin(now / 13000.0).toFloat() * 4f * u
+        val dy = sin(now / 17000.0).toFloat() * 4f * u
 
         fun paintBg(b: Bitmap?, alpha: Float) {
             if (alpha <= 0f) return
@@ -446,23 +437,22 @@ class PlayerView(context: Context) : View(context) {
         var animating = false
         val cx = w / 2f
         val avail = bottom - top
-        val showSeek = !driving
-        val actions = if (driving) emptyList() else t.actions.take(5)
+        val actions = t.actions.take(5)
 
         // Stack, measured from the art's bottom edge.
         val titleOff = 12f * u
         val artistOff = titleOff + 6.5f * u
         val seekOff = artistOff + 9f * u
         val timesOff = seekOff + 6f * u
-        val ctrlOff = if (showSeek) timesOff + 15f * u else artistOff + 24f * u
+        val ctrlOff = timesOff + 15f * u
         val actionsOff = ctrlOff + 18f * u
-        val below = (if (actions.isNotEmpty()) actionsOff + 5f * u else ctrlOff + (if (driving) 16f else 13f) * u)
+        val below = (if (actions.isNotEmpty()) actionsOff + 5f * u else ctrlOff + 13f * u)
         val s = min(70f * u, avail - below - 4f * u).coerceAtLeast(30f * u)
         val blockTop = top + max(2f * u, (avail - s - below) / 2f)
         val artBottom = blockTop + s
 
         // Art: shrinks a little when paused, follows the finger when swiped.
-        val targetScale = if (pressed == Target.ART) 0.95f else if (t.isPlaying || driving) 1f else 0.9f
+        val targetScale = if (pressed == Target.ART) 0.95f else if (t.isPlaying) 1f else 0.9f
         artScale += (targetScale - artScale) * 0.15f
         if (abs(targetScale - artScale) > 0.002f) animating = true
         if (target != Target.ART && abs(dragX) > 0.5f) {
@@ -516,7 +506,7 @@ class PlayerView(context: Context) : View(context) {
 
         // Seek bar.
         seekRect.setEmpty()
-        if (showSeek) {
+        run {
             val sy = artBottom + seekOff
             val dur = t.durationMs
             if (target != Target.SEEK && seekPreview >= 0f && SystemClock.uptimeMillis() > seekHoldUntil) seekPreview = -1f
@@ -555,13 +545,13 @@ class PlayerView(context: Context) : View(context) {
 
         // Transport controls.
         ctrlY = artBottom + ctrlOff
-        val spread = if (driving) 32f * u else 26f * u
+        val spread = 26f * u
         playX = cx
         prevX = cx - spread
         nextX = cx + spread
-        playR = (if (driving) 13f else 10f) * u
+        playR = 10f * u
         drawPlayButton(canvas, playX, ctrlY, playR * (if (pressed == Target.PLAY) 0.93f else 1f), t.isPlaying)
-        val skipR = (if (driving) 5.2f else 4f) * u
+        val skipR = 4f * u
         drawSkip(canvas, prevX, ctrlY, skipR * (if (pressed == Target.PREV) 0.85f else 1f), false)
         drawSkip(canvas, nextX, ctrlY, skipR * (if (pressed == Target.NEXT) 0.85f else 1f), true)
 
@@ -869,7 +859,7 @@ class PlayerView(context: Context) : View(context) {
         canvas.restore()
         y += 22f * u
 
-        if (driving || launchApps.isEmpty()) return
+        if (launchApps.isEmpty()) return
         text.typeface = fonts.bodyMedium
         text.textSize = 3.2f * u
         text.color = MUTED
@@ -1180,12 +1170,12 @@ class PlayerView(context: Context) : View(context) {
             return null
         }
         tabRects.forEachIndexed { i, (_, r) ->
-            if (hasAccess && !driving && r.contains(x, y)) {
+            if (hasAccess && r.contains(x, y)) {
                 targetIndex = i
                 return Target.TAB
             }
         }
-        if (!pillRect.isEmpty && pillRect.contains(x, y) && !driving) return Target.PILL
+        if (!pillRect.isEmpty && pillRect.contains(x, y)) return Target.PILL
         if (!hasAccess) return if (accessRect.contains(x, y)) Target.ACCESS else Target.NONE
         val t = track
         when {
