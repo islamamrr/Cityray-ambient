@@ -976,7 +976,7 @@ class TumblerView(
     }
 
     private fun label(
-        c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, face: Typeface,
+        c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, face: Typeface = Typeface.DEFAULT,
         align: Paint.Align = Paint.Align.CENTER, spacing: Float = 0f,
     ) {
         text.typeface = face
