@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A safe dial with a red index mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#101418"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#5A6470"
+        android:pathData="M54,18a36,36 0,1 1,0 72a36,36 0,1 1,0 -72z" />
+    <path
+        android:fillColor="#232A31"
+        android:pathData="M54,24a30,30 0,1 1,0 60a30,30 0,1 1,0 -60z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#D9DEE3"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M54,27v6M54,75v6M27,54h6M75,54h6M35,35l4,4M69,69l4,4M73,35l-4,4M39,69l-4,4" />
+    <path
+        android:fillColor="#F2B84B"
+        android:pathData="M54,42a12,12 0,1 1,0 24a12,12 0,1 1,0 -24z" />
+    <path
+        android:fillColor="#B9822A"
+        android:pathData="M52,44h4v20h-4z" />
+    <path
+        android:fillColor="#FF4D4D"
+        android:pathData="M48,8h12l-6,10z" />
+</vector>

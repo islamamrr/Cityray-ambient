@@ -18,3 +18,4 @@ rootProject.name = "CarAmbient"
 include(":app")
 include(":carlib")
 include(":probe")
+include(":tumbler")
