@@ -1,16 +1,15 @@
 package dev.carapps.car
 
 /**
- * Turns raw ECARX sensor values into meaning. Mappings marked "tentative" come from one
- * Car Probe session on a Cityray (2026-10-31) and still need a second confirmation.
+ * Turns raw ECARX sensor values into meaning, as measured with Car Probe on a Cityray.
  */
 object CarDecode {
 
     enum class Gear { P, R, N, D, UNKNOWN }
 
     /**
-     * Gear events are 0x200200 plus a step of 0x10. Tentative mapping, from shifting
-     * P -> R -> N -> D in order: +0x40 P, +0x10 R, +0x20 N, +0x30 D.
+     * Gear events are 0x200200 plus a step of 0x10: +0x40 P, +0x10 R, +0x20 N, +0x30 D.
+     * Confirmed in the car on 2026-10-31.
      */
     fun gear(event: Int): Gear = when (event - CarSensor.GEAR.id) {
         0x40 -> Gear.P

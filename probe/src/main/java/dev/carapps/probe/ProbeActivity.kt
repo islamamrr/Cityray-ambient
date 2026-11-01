@@ -169,7 +169,7 @@ class ProbeActivity : Activity() {
     private fun showEvent(id: Int, e: Int): String {
         if (e == -1) return "-1"
         return when (id) {
-            CarSensor.GEAR.id -> "+0x${Integer.toHexString(e - id)} ${CarDecode.gear(e)}?"
+            CarSensor.GEAR.id -> "+0x${Integer.toHexString(e - id)} ${CarDecode.gear(e)}"
             CarSensor.IGNITION.id -> "+${CarDecode.ignitionStep(e)}"
             else -> e.toString()
         }

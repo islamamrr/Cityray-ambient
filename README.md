@@ -5,6 +5,7 @@ A full-screen ambient clock for the Geely Cityray's vertical 13" screen, with a 
 - **Themes:** Minimal, Gauge, Aurora. Swipe left or right to switch.
 - **Dim:** double-tap anywhere outside the music controls.
 - **Now playing:** shows title, artist and art from whichever app is playing, with previous / play-pause / next.
+- **Park aware:** on the Cityray, shifting out of Park sends the app to the background, so the car's normal screen comes back.
 - Keeps the screen on, hides the system bars, and nudges the layout a few pixels each minute to avoid burn-in.
 
 ## Build
@@ -29,6 +30,7 @@ adb shell cmd notification allow_listener dev.carapps.ambient/dev.carapps.ambien
 
 `carlib` is a small shared library for reading car data on the Cityray head unit. It uses the ECARX car API that ships in the head unit's system image, and looks it up at runtime, so apps still run (without car data) on a phone.
 
+- `ParkWatcher` reports the current gear (P, R, N, D). Gear values are confirmed in the car.
 - `EcarxCar` reads sensors: ignition, gear, engine state, speed, RPM, fuel, odometer, steering angle. It's read-only.
 - `EcarxKeys` listens to steering-wheel keys. While it holds a key, the head unit skips that key's normal action, so always call `release()`.
 

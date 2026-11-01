@@ -9,11 +9,15 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import dev.carapps.car.CarDecode
+import dev.carapps.car.ParkWatcher
 
 class MainActivity : Activity() {
 
     private lateinit var ambient: AmbientView
     private lateinit var media: MediaWatcher
+    private lateinit var park: ParkWatcher
+    private var lastGear = CarDecode.Gear.UNKNOWN
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,6 +29,15 @@ class MainActivity : Activity() {
         ambient.themeIndex = prefs.getInt("theme", 0)
         ambient.dimmed = prefs.getBoolean("dim", false)
         setContentView(ambient)
+
+        // Leave the screen when the car shifts out of Park, so the driver sees the normal UI.
+        // Only a P -> other change triggers it, so a wrong reading can't lock the app out.
+        park = ParkWatcher(this) { gear ->
+            if (lastGear == CarDecode.Gear.P && gear != CarDecode.Gear.P && gear != CarDecode.Gear.UNKNOWN) {
+                moveTaskToBack(true)
+            }
+            lastGear = gear
+        }
 
         media = MediaWatcher(this) { np -> ambient.setNowPlaying(np, media.hasAccess()) }
 
@@ -53,11 +66,14 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemBars()
         media.start()
+        park.start()
         ambient.invalidate()
     }
 
     override fun onPause() {
         media.stop()
+        park.stop()
+        lastGear = CarDecode.Gear.UNKNOWN
         super.onPause()
     }
 

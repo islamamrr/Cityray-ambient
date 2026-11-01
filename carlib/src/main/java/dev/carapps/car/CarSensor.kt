@@ -4,9 +4,8 @@ package dev.carapps.car
  * Sensor ids used by the head unit's ECARX car API (com.ecarx.xui.adaptapi.car.sensor.ISensor).
  *
  * These are the values the system expects. They were read from the interface constants
- * that apps on this head unit compile against. How each value is encoded (for example,
- * which number means P, R, N or D) is not known yet. Car Probe shows the raw values so
- * we can record them on the real car.
+ * that apps on this head unit compile against. [CarDecode] turns raw values into meaning
+ * where we have measured it; Car Probe shows the raw values for the rest.
  */
 enum class CarSensor(val id: Int, val label: String, val unit: String = "") {
     IGNITION(0x200100, "Ignition state"),
