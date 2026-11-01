@@ -22,7 +22,7 @@ The head unit's system image ships the ECARX "AdaptAPI" (`com.ecarx.xui.adaptapi
 
 | Sensor | Id | Label | What we saw |
 | --- | --- | --- | --- |
-| Gear | 0x200200 | CONFIRMED | Event. +0x40 P, +0x10 R, +0x20 N, +0x30 D |
+| Gear | 0x200200 | CONFIRMED | Event. +0x30 P, +0x40 R, +0x10 N, +0x20 D. Corrected 2026-11-01: the first map was shifted by one step |
 | Ignition | 0x200100 | OBSERVED | Event. Read +7 the whole time; other states not mapped |
 | Speed | 0x100100 | OBSERVED | Active, read 0 while parked |
 | Speed (cluster) | 0x101A00 | OBSERVED | Active, read 0 while parked |

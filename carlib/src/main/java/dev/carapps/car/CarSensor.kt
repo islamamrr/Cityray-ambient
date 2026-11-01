@@ -17,7 +17,7 @@ enum class CarSensor(
     IGNITION(0x200100, "Ignition state", confidence = Confidence.OBSERVED,
         note = "Event sensor. Read 0x200100 +7 the whole session; other states not mapped yet."),
     GEAR(0x200200, "Gear", confidence = Confidence.CONFIRMED,
-        note = "Event sensor. +0x40 P, +0x10 R, +0x20 N, +0x30 D."),
+        note = "Event sensor. +0x30 P, +0x40 R, +0x10 N, +0x20 D (corrected 2026-11-01)."),
     ENGINE_STATE(0x201600, "Engine state", confidence = Confidence.NOT_AVAILABLE,
         note = "Reported notavailable and registerListener refused it."),
     SPEED(0x100100, "Speed", "km/h", Confidence.OBSERVED,
