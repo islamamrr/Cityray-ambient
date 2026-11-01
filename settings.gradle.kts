@@ -18,3 +18,4 @@ rootProject.name = "CarAmbient"
 include(":app")
 include(":gamekit")
 include(":sparkduel")
+include(":hunch")

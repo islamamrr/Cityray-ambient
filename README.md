@@ -42,3 +42,20 @@ The shared `gamekit` module holds the full-screen game activity and drawing help
 ```
 adb install -r SparkDuel-debug.apk
 ```
+
+## Hunch (`hunch`)
+
+A pass-the-screen guessing game for 2 to 6 players. Each round, players take turns guessing while the others look away; then the screen reveals everyone's guess on a number line. The closest guess scores 2, and a near-perfect guess earns 1 more. Play 4, 8 or 12 rounds.
+
+Rounds rotate through four kinds:
+
+- **Blind Clock:** start a clock that hides after one second, and stop it at a target time.
+- **Dot Flash:** a cloud of dots shows for 1.5 seconds; guess how many.
+- **Angle Eye:** guess the size of an angle in degrees.
+- **Close Call:** a trivia question with a number for an answer.
+
+GitHub Actions uploads the APK as the **Hunch-apk** artifact.
+
+```
+adb install -r Hunch-debug.apk
+```
