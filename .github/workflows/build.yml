@@ -31,3 +31,8 @@ jobs:
         with:
           name: CarPlayer-apk
           path: player/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarProbe-apk
+          path: probe/build/outputs/apk/debug/*.apk

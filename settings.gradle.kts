@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CarAmbient"
-include(":app", ":player")
+include(":app", ":player", ":carlib", ":probe")
