@@ -15,6 +15,8 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
+import android.text.Layout
+import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import android.text.format.DateFormat
@@ -50,7 +52,7 @@ class PlayerView(context: Context) : View(context) {
         fun onInstallUpdate()
     }
 
-    private enum class Tab { NOW, QUEUE, SOURCES }
+    private enum class Tab { NOW, LYRICS, QUEUE, SOURCES }
 
     var listener: Listener? = null
 
@@ -64,6 +66,16 @@ class PlayerView(context: Context) : View(context) {
         set(v) {
             field = v
             if (v) tab = Tab.NOW
+            invalidate()
+        }
+
+    /** Lyrics for the current song, set by the activity. */
+    var lyrics: Lyrics? = null
+        set(v) {
+            field = v
+            lyricLayouts = null
+            lyricScroll = 0f
+            lyricManualUntil = 0L
             invalidate()
         }
 
@@ -102,9 +114,14 @@ class PlayerView(context: Context) : View(context) {
     private var seekHoldUntil = 0L
     private var queueScroll = 0f
     private var tabFadeStart = 0L
+    private var lyricScroll = 0f
+    private var lyricManualUntil = 0L
+    private var lyricLayouts: List<StaticLayout>? = null
+    private var lyricLayoutWidth = 0
+    private val lyricTops = ArrayList<Float>()
 
     // Touch.
-    private enum class Target { NONE, SEEK, ART, PREV, PLAY, NEXT, ACTION, TAB, PILL, ROW, SOURCE, APP, ACCESS, RESUME, UPDATE }
+    private enum class Target { NONE, SEEK, ART, PREV, PLAY, NEXT, ACTION, TAB, PILL, ROW, LYRIC, SOURCE, APP, ACCESS, RESUME, UPDATE }
     private var target = Target.NONE
     private var pressed = Target.NONE
     private var targetIndex = -1
@@ -159,6 +176,7 @@ class PlayerView(context: Context) : View(context) {
             onArtChanged(art)
         }
         if (tab == Tab.QUEUE && t?.queue.isNullOrEmpty()) tab = Tab.NOW
+        if (tab == Tab.LYRICS && t == null) tab = Tab.NOW
         if (old?.title != t?.title) queueScroll = 0f
         // A seek we just sent shows its target until the app reports the new position.
         if (target != Target.SEEK && (old?.title != t?.title || SystemClock.uptimeMillis() > seekHoldUntil)) {
@@ -227,6 +245,7 @@ class PlayerView(context: Context) : View(context) {
             !hasAccess -> drawNoAccess(canvas, w, top, bottom)
             tab == Tab.SOURCES -> drawSources(canvas, w, top, bottom)
             tab == Tab.QUEUE && t != null -> drawQueue(canvas, w, top, bottom, t)
+            tab == Tab.LYRICS && t != null -> if (drawLyrics(canvas, w, top, bottom, t)) animating = true
             t == null -> drawNothingPlaying(canvas, w, top, bottom)
             else -> if (drawNowPlaying(canvas, w, top, bottom, t)) animating = true
         }
@@ -356,6 +375,7 @@ class PlayerView(context: Context) : View(context) {
 
         val tabs = ArrayList<Tab>()
         tabs.add(Tab.NOW)
+        if (track != null) tabs.add(Tab.LYRICS)
         if (!track?.queue.isNullOrEmpty()) tabs.add(Tab.QUEUE)
         tabs.add(Tab.SOURCES)
         tabRects.clear()
@@ -375,6 +395,16 @@ class PlayerView(context: Context) : View(context) {
                     stroke.strokeWidth = 0.55f * u
                     canvas.drawCircle(cx, iy, r * 0.9f, stroke)
                     canvas.drawCircle(cx, iy, r * 0.3f, stroke)
+                }
+                Tab.LYRICS -> {
+                    // A speech bubble with two lines of text.
+                    stroke.color = iconColor
+                    stroke.strokeWidth = 0.55f * u
+                    tmp.set(cx - r, iy - r * 0.85f, cx + r, iy + r * 0.6f)
+                    canvas.drawRoundRect(tmp, r * 0.4f, r * 0.4f, stroke)
+                    canvas.drawLine(cx - r * 0.45f, iy + r * 0.6f, cx - r * 0.65f, iy + r * 1.05f, stroke)
+                    canvas.drawLine(cx - r * 0.5f, iy - r * 0.3f, cx + r * 0.5f, iy - r * 0.3f, stroke)
+                    canvas.drawLine(cx - r * 0.5f, iy + r * 0.1f, cx + r * 0.2f, iy + r * 0.1f, stroke)
                 }
                 Tab.QUEUE -> {
                     stroke.color = iconColor
@@ -402,6 +432,7 @@ class PlayerView(context: Context) : View(context) {
             text.color = if (on) INK else MUTED
             val label = when (tb) {
                 Tab.NOW -> "Now playing"
+                Tab.LYRICS -> "Lyrics"
                 Tab.QUEUE -> "Up next"
                 Tab.SOURCES -> "Sources"
             }
@@ -626,6 +657,107 @@ class PlayerView(context: Context) : View(context) {
             if (current) drawEq(canvas, r.right - 5f * u, r.centerY(), t.isPlaying)
         }
         canvas.restore()
+    }
+
+    /** Returns true while the lyrics are scrolling to the current line. */
+    private fun drawLyrics(canvas: Canvas, w: Float, top: Float, bottom: Float, t: Track): Boolean {
+        val l = lyrics
+        listTop = top + 2f * u
+        listBottom = bottom - 6f * u
+        val status = when (l) {
+            null, Lyrics.Loading -> "Looking up lyrics…"
+            Lyrics.NotFound -> "No lyrics found for this song."
+            Lyrics.Offline -> "Lyrics need internet the first time a song plays."
+            Lyrics.Instrumental -> "Instrumental"
+            else -> null
+        }
+        if (status != null) {
+            listMaxScroll = 0f
+            text.typeface = fonts.displaySemi
+            text.textSize = 4.6f * u
+            text.color = MUTED
+            drawCentered(canvas, status, w / 2f, top + (bottom - top) * 0.4f)
+            return false
+        }
+
+        val synced = l as? Lyrics.Synced
+        val lines = synced?.lines?.map { it.second } ?: (l as Lyrics.Plain).lines
+        val width = (w - 12f * u).toInt()
+        var layouts = lyricLayouts
+        if (layouts == null || lyricLayoutWidth != width) {
+            val p = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = fonts.displaySemi
+                textSize = (if (synced != null) 6f else 4.6f) * u
+                color = Color.WHITE
+            }
+            layouts = lines.map { line ->
+                StaticLayout.Builder.obtain(line.ifBlank { "♪" }, 0, line.ifBlank { "♪" }.length, p, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1.1f)
+                    .build()
+            }
+            lyricLayouts = layouts
+            lyricLayoutWidth = width
+        }
+
+        val gap = (if (synced != null) 4.5f else 2f) * u
+        lyricTops.clear()
+        var y = 0f
+        for (lay in layouts) {
+            lyricTops.add(y)
+            y += lay.height + gap
+        }
+        val area = listBottom - listTop
+        listMaxScroll = max(0f, y - area * 0.5f)
+
+        // Synced lyrics follow the song unless you scrolled in the last few seconds.
+        var current = -1
+        var animating = false
+        if (synced != null) {
+            val pos = t.positionNow() + 300
+            current = synced.lines.indexOfLast { it.first <= pos }
+            if (target != Target.LYRIC && SystemClock.uptimeMillis() > lyricManualUntil && current >= 0) {
+                val goal = (lyricTops[current] + layouts[current].height / 2f - area * 0.35f).coerceIn(0f, listMaxScroll)
+                lyricScroll += (goal - lyricScroll) * 0.12f
+                if (abs(goal - lyricScroll) > 0.5f) animating = true
+            }
+        }
+        lyricScroll = lyricScroll.coerceIn(0f, listMaxScroll)
+
+        canvas.save()
+        canvas.clipRect(0f, listTop, w, listBottom)
+        layouts.forEachIndexed { i, lay ->
+            val ly = listTop + lyricTops[i] - lyricScroll
+            if (ly + lay.height < listTop || ly > listBottom) return@forEachIndexed
+            lay.paint.color = when {
+                synced == null -> 0xD9FFFFFF.toInt()
+                i == current -> INK
+                i < current -> 0x59FFFFFF
+                else -> 0x8CFFFFFF.toInt()
+            }
+            canvas.save()
+            canvas.translate(6f * u, ly)
+            lay.draw(canvas)
+            canvas.restore()
+        }
+        canvas.restore()
+
+        text.typeface = fonts.body
+        text.textSize = 2.6f * u
+        text.color = 0x66FFFFFF
+        drawCentered(canvas, if (t.canSeek && synced != null) "Lyrics from LRCLIB · tap a line to jump to it" else "Lyrics from LRCLIB", w / 2f, bottom - 2f * u)
+        return animating
+    }
+
+    /** Index of the lyric line at screen y, or -1. */
+    private fun lyricAt(y: Float): Int {
+        val layouts = lyricLayouts ?: return -1
+        if (y < listTop || y > listBottom) return -1
+        val content = y - listTop + lyricScroll
+        for (i in layouts.indices) {
+            if (content >= lyricTops.getOrElse(i) { 0f } && content <= lyricTops.getOrElse(i) { 0f } + layouts[i].height) return i
+        }
+        return -1
     }
 
     private fun drawSources(canvas: Canvas, w: Float, top: Float, bottom: Float) {
@@ -928,7 +1060,7 @@ class PlayerView(context: Context) : View(context) {
                 downY = y
                 horizontalDrag = false
                 verticalDrag = false
-                scrollAtDown = queueScroll
+                scrollAtDown = if (tab == Tab.LYRICS) lyricScroll else queueScroll
                 target = hitTest(x, y)
                 pressed = target
                 if (target == Target.SEEK) seekPreview = seekFraction(x)
@@ -947,10 +1079,16 @@ class PlayerView(context: Context) : View(context) {
                         }
                     }
                     else -> {
-                        if (tab == Tab.QUEUE && y > listTop && (verticalDrag || abs(dy) > 3f * u)) {
+                        val scrolls = tab == Tab.QUEUE || tab == Tab.LYRICS
+                        if (scrolls && y > listTop && (verticalDrag || abs(dy) > 3f * u)) {
                             verticalDrag = true
                             pressed = Target.NONE
-                            queueScroll = (scrollAtDown - dy).coerceIn(0f, listMaxScroll)
+                            if (tab == Tab.QUEUE) {
+                                queueScroll = (scrollAtDown - dy).coerceIn(0f, listMaxScroll)
+                            } else {
+                                lyricScroll = (scrollAtDown - dy).coerceIn(0f, listMaxScroll)
+                                lyricManualUntil = SystemClock.uptimeMillis() + 4000
+                            }
                         } else if (hypot(dx, dy) > 6f * u) {
                             pressed = Target.NONE
                         }
@@ -1016,6 +1154,14 @@ class PlayerView(context: Context) : View(context) {
                 showTab(Tab.NOW)
             }
             Target.APP -> launchApps.getOrNull(targetIndex)?.let { l.onOpenApp(it.packageName) }
+            Target.LYRIC -> {
+                val synced = lyrics as? Lyrics.Synced
+                val line = synced?.lines?.getOrNull(targetIndex)
+                if (line != null && t != null && t.canSeek) {
+                    l.onSeek(line.first)
+                    lyricManualUntil = 0L
+                }
+            }
             Target.ACCESS -> l.onRequestAccess()
             Target.UPDATE -> l.onInstallUpdate()
             else -> {}
@@ -1046,6 +1192,12 @@ class PlayerView(context: Context) : View(context) {
             tab == Tab.SOURCES -> {
                 if (!updateRect.isEmpty && updateRect.contains(x, y)) return Target.UPDATE
                 return idx(sourceRects, Target.SOURCE) ?: Target.NONE
+            }
+            tab == Tab.LYRICS && t != null -> {
+                val i = lyricAt(y)
+                if (i < 0) return Target.NONE
+                targetIndex = i
+                return Target.LYRIC
             }
             tab == Tab.QUEUE && t != null -> {
                 rowRects.forEachIndexed { i, (_, r) ->

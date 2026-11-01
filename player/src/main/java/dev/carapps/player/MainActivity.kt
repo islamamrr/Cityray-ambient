@@ -17,6 +17,8 @@ class MainActivity : Activity() {
     private lateinit var drive: DriveWatcher
     private lateinit var updater: Updater
     private var update: Updater.Release? = null
+    private lateinit var lyricsStore: LyricsStore
+    private var lyricsKey = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,7 +27,11 @@ class MainActivity : Activity() {
         player = PlayerView(this)
         setContentView(player)
 
-        media = MediaHub(this) { track, sources -> player.setTrack(track, sources, media.hasAccess()) }
+        lyricsStore = LyricsStore(this)
+        media = MediaHub(this) { track, sources ->
+            player.setTrack(track, sources, media.hasAccess())
+            if (track != null) loadLyrics(track)
+        }
         drive = DriveWatcher(this) { driving -> player.driving = driving }
         updater = Updater(this)
 
@@ -76,6 +82,19 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    /** Looks up lyrics once per song; the store answers from its cache when it can. */
+    private fun loadLyrics(track: Track) {
+        val key = track.artist + "\n" + track.title
+        if (key == lyricsKey) return
+        lyricsKey = key
+        player.lyrics = Lyrics.Loading
+        lyricsStore.load(track.title, track.artist, track.album, track.durationMs) {
+            player.lyrics = it
+            // No internet: try again on the next update from the music app.
+            if (it == Lyrics.Offline) lyricsKey = ""
+        }
     }
 
     /** Installed apps that say they play music, for the "nothing playing" screen. */

@@ -33,6 +33,7 @@ A full-screen remote for whatever music app is playing (built around Spotify). I
 
 - **Now playing:** big cover, title, artist, seek bar, previous / play-pause / next. Colours come from the cover. Swipe the cover to skip, tap it to play or pause.
 - **App buttons:** extra buttons the music app publishes itself (for Spotify: like, shuffle, repeat), drawn with the app's own icons. Only shown if the app sends them.
+- **Lyrics:** from [LRCLIB](https://lrclib.net) (free, no account). Synced lyrics highlight the current line and scroll with the song; tap a line to jump there. Each song's lyrics are saved on the device, so they work offline after the first time.
 - **Up next:** the app's queue. The tab only appears when the app shares its queue.
 - **Sources:** apps that currently have music loaded. Tap the app name at the top to get there.
 - **Play from cold:** with nothing playing, "Resume music" sends a play key to the last music app.
