@@ -26,3 +26,13 @@ jobs:
         with:
           name: CarAmbient-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SparkDuel-apk
+          path: sparkduel/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hunch-apk
+          path: hunch/build/outputs/apk/debug/*.apk

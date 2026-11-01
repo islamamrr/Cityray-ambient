@@ -1,0 +1,56 @@
+package dev.carapps.hunch
+
+/** A question with a number for an answer. */
+class Fact(val question: String, val answer: Long, val unit: String = "")
+
+/** Questions for the "Close Call" rounds. Answers are well-established figures. */
+object Facts {
+    val all = listOf(
+        Fact("How many keys are on a standard piano?", 88),
+        Fact("How many bones are in an adult human body?", 206),
+        Fact("How many minutes are in one week?", 10080),
+        Fact("How many seconds are in one day?", 86400),
+        Fact("How many hours are in a regular (non-leap) year?", 8760),
+        Fact("How many countries are in Africa?", 54),
+        Fact("How many member countries does the United Nations have?", 193),
+        Fact("In what year did humans first land on the Moon?", 1969),
+        Fact("In what year was the first iPhone released?", 2007),
+        Fact("In what year was the first Android phone released?", 2008),
+        Fact("In what year did the Suez Canal open?", 1869),
+        Fact("In what year did World War II end?", 1945),
+        Fact("In what year did the Titanic sink?", 1912),
+        Fact("In what year did the Berlin Wall fall?", 1989),
+        Fact("In what year was the Eiffel Tower completed?", 1889),
+        Fact("In what year did Karl Benz patent his motor car?", 1886),
+        Fact("In what year did the Ford Model T go on sale?", 1908),
+        Fact("In what year was Geely founded?", 1986),
+        Fact("In what year was YouTube founded?", 2005),
+        Fact("In what year did the October War (Yom Kippur War) take place?", 1973),
+        Fact("In what year was the Aswan High Dam completed?", 1970),
+        Fact("In what year did the Cairo Tower open?", 1961),
+        Fact("How tall was the Great Pyramid of Giza when it was built?", 146, "m"),
+        Fact("How tall is the Burj Khalifa?", 828, "m"),
+        Fact("How tall is Mount Everest?", 8849, "m"),
+        Fact("How long is the Nile river, roughly?", 6650, "km"),
+        Fact("What is the diameter of the Earth, roughly?", 12742, "km"),
+        Fact("How far away is the Moon on average, in thousands of km?", 384, "thousand km"),
+        Fact("How fast is light, in thousands of km per second (rounded)?", 300, "thousand km/s"),
+        Fact("How many seconds does sunlight take to reach Earth, roughly?", 500, "s"),
+        Fact("How many Earth days long is a year on Mars?", 687, "days"),
+        Fact("What is the temperature at the surface of the Sun, roughly?", 5500, "°C"),
+        Fact("At what temperature does water boil, in Fahrenheit?", 212, "°F"),
+        Fact("How many elements are in the periodic table?", 118),
+        Fact("What is the atomic number of gold?", 79),
+        Fact("How long is a marathon, in metres?", 42195, "m"),
+        Fact("How long is one lap of a standard running track?", 400, "m"),
+        Fact("How many squares are on a chessboard?", 64),
+        Fact("How many cards are in a deck, without jokers?", 52),
+        Fact("How many coloured stickers are on a classic Rubik's Cube?", 54),
+        Fact("How many letters are in the Arabic alphabet?", 28),
+        Fact("How many stars are on the flag of the United States?", 50),
+        Fact("How many bones are in one human hand (with the wrist)?", 27),
+        Fact("How many teeth does a full adult set have, wisdom teeth included?", 32),
+        Fact("How many neck bones does a giraffe have?", 7),
+        Fact("How many hearts does an octopus have?", 3),
+    )
+}
