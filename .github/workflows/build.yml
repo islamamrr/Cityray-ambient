@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +21,13 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      # Player's fonts (Sora and DM Sans, SIL Open Font License) from the Google Fonts repo.
+      - name: Fetch player fonts
+        run: |
+          mkdir -p player/src/main/assets/fonts
+          curl -fsSL -o player/src/main/assets/fonts/Sora.ttf "https://github.com/google/fonts/raw/main/ofl/sora/Sora%5Bwght%5D.ttf" || echo "Sora not downloaded"
+          curl -fsSL -o player/src/main/assets/fonts/DMSans.ttf "https://github.com/google/fonts/raw/main/ofl/dmsans/DMSans%5Bopsz,wght%5D.ttf" || echo "DM Sans not downloaded"
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
@@ -26,3 +35,26 @@ jobs:
         with:
           name: CarAmbient-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarPlayer-apk
+          path: player/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarProbe-apk
+          path: probe/build/outputs/apk/debug/*.apk
+
+      # Builds from main become the "player-latest" release, which the app checks for updates.
+      - name: Publish Player release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp player/build/outputs/apk/debug/*.apk CarPlayer.apk
+          gh release delete player-latest --yes --cleanup-tag || true
+          gh release create player-latest CarPlayer.apk \
+            --title "Car Player build ${{ github.run_number }}" \
+            --notes "versionCode=${{ github.run_number }}" \
+            --target "${{ github.sha }}"
