@@ -26,3 +26,13 @@ jobs:
         with:
           name: CarAmbient-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarProbe-apk
+          path: probe/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Surprise-apk
+          path: surprise/build/outputs/apk/debug/*.apk
