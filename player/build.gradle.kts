@@ -12,8 +12,10 @@ android {
         minSdk = 26
         // The head unit runs Android 11, so target it directly.
         targetSdk = 30
-        versionCode = 1
-        versionName = "0.1"
+        // Each GitHub Actions run gets a higher number, so the in-app updater can compare builds.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "0.2 ($build)"
     }
 
     // A fixed key committed to the repo, so each new build installs over the last one.
@@ -39,4 +41,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation(project(":carlib"))
 }

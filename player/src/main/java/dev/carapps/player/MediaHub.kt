@@ -3,17 +3,27 @@ package dev.carapps.player
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.KeyEvent
 
 /** One app that currently has a media session. */
-data class Source(val packageName: String, val label: String, val isPlaying: Boolean)
+class Source(val packageName: String, val label: String, val icon: Drawable?, val isPlaying: Boolean)
+
+/** An extra button the app itself publishes, such as Spotify's like, shuffle or repeat. */
+class AppAction(val action: String, val name: String, val icon: Drawable?)
+
+/** One song in the app's own queue, if it shares one. */
+class QueueEntry(val id: Long, val title: String, val subtitle: String, val art: Bitmap?)
 
 data class Track(
     val title: String,
@@ -29,6 +39,10 @@ data class Track(
     val positionAt: Long,
     val speed: Float,
     val canSeek: Boolean,
+    val actions: List<AppAction>,
+    val queue: List<QueueEntry>,
+    /** Queue id of the current song, or -1 if unknown. */
+    val queueCurrentId: Long,
 ) {
     fun positionNow(): Long {
         if (!isPlaying) return positionMs
@@ -49,6 +63,8 @@ class MediaHub(
     private val component = ComponentName(context, MediaListenerService::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private val labels = HashMap<String, String>()
+    private val actionIcons = HashMap<String, Drawable?>()
+    private val appIcons = HashMap<String, Drawable?>()
     private var controllers: List<MediaController> = emptyList()
     private var current: MediaController? = null
     private var pinned: String? = null
@@ -57,6 +73,7 @@ class MediaHub(
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = refresh()
         override fun onPlaybackStateChanged(state: PlaybackState?) = refresh()
+        override fun onQueueChanged(queue: List<MediaSession.QueueItem>?) = refresh()
         override fun onSessionDestroyed() = rebind()
     }
 
@@ -102,7 +119,11 @@ class MediaHub(
     }
 
     fun playPause() {
-        val c = current ?: return
+        val c = current
+        if (c == null) {
+            resumeLastPlayer()
+            return
+        }
         if (c.playbackState?.state == PlaybackState.STATE_PLAYING) {
             c.transportControls.pause()
         } else {
@@ -120,6 +141,24 @@ class MediaHub(
 
     fun seekTo(ms: Long) {
         current?.transportControls?.seekTo(ms)
+    }
+
+    fun sendAction(action: String) {
+        current?.transportControls?.sendCustomAction(action, null)
+    }
+
+    fun skipToQueueItem(id: Long) {
+        current?.transportControls?.skipToQueueItem(id)
+    }
+
+    /**
+     * With no app holding a music session, a "play" media key goes to the app that
+     * played last (usually Spotify), which resumes where it stopped.
+     */
+    fun resumeLastPlayer() {
+        val audio = context.getSystemService(AudioManager::class.java)
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
     }
 
     private fun rebind() {
@@ -161,8 +200,26 @@ class MediaHub(
         }
     }
 
+    private fun appIcon(pkg: String): Drawable? = appIcons.getOrPut(pkg) {
+        try {
+            context.packageManager.getApplicationIcon(pkg)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** The app's own icon for a custom action, loaded from that app's resources. */
+    private fun actionIcon(pkg: String, resId: Int): Drawable? = actionIcons.getOrPut("$pkg:$resId") {
+        if (resId == 0) return@getOrPut null
+        try {
+            context.packageManager.getResourcesForApplication(pkg).getDrawable(resId, null)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun refresh() {
-        val sources = controllers.map { Source(it.packageName, label(it.packageName), isPlaying(it)) }
+        val sources = controllers.map { Source(it.packageName, label(it.packageName), appIcon(it.packageName), isPlaying(it)) }
         val c = pick()
         current = c
         val md = c?.metadata
@@ -196,6 +253,14 @@ class MediaHub(
                 positionAt = state?.lastPositionUpdateTime ?: SystemClock.elapsedRealtime(),
                 speed = state?.playbackSpeed?.takeIf { it > 0f } ?: 1f,
                 canSeek = (state?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO != 0L,
+                actions = state?.customActions.orEmpty().map {
+                    AppAction(it.action, it.name?.toString() ?: "", actionIcon(c.packageName, it.icon))
+                },
+                queue = c.queue.orEmpty().map { item ->
+                    val d = item.description
+                    QueueEntry(item.queueId, d.title?.toString() ?: "", d.subtitle?.toString() ?: "", d.iconBitmap)
+                },
+                queueCurrentId = state?.activeQueueItemId ?: -1L,
             ),
             sources,
         )

@@ -29,13 +29,15 @@ adb shell cmd notification allow_listener dev.carapps.ambient/dev.carapps.ambien
 
 # Car Player
 
-A full-screen remote for whatever music app is playing (Spotify, YouTube Music, the car's own player and so on). It lives in the `player/` folder and builds as its own APK (`CarPlayer-apk` in the run's Artifacts).
+A full-screen remote for whatever music app is playing (built around Spotify). It lives in the `player/` folder and builds as its own APK (`CarPlayer-apk` in the run's Artifacts).
 
-- Big album art, with the screen's background and accent colour taken from the cover.
-- Seek bar (when the app allows seeking), previous / play-pause / next, and a volume slider.
-- Swipe the cover left or right to skip; tap it to play or pause.
-- App chips at the top switch between apps that have music loaded. Tap the lit chip to open that app.
-- When nothing is playing, it lists installed music apps to launch.
+- **Now playing:** big cover, title, artist, seek bar, previous / play-pause / next. Colours come from the cover. Swipe the cover to skip, tap it to play or pause.
+- **App buttons:** extra buttons the music app publishes itself (for Spotify: like, shuffle, repeat), drawn with the app's own icons. Only shown if the app sends them.
+- **Up next:** the app's queue. The tab only appears when the app shares its queue.
+- **Sources:** apps that currently have music loaded. Tap the app name at the top to get there.
+- **Play from cold:** with nothing playing, "Resume music" sends a play key to the last music app.
+- **Driving mode:** when the gear leaves P (read through `carlib`), the player hides the tabs and seek bar, makes the buttons bigger and stops the background moving.
+- **Updates:** builds from `main` are published as the `player-latest` release. The app checks it on launch, and Sources shows "Update available" with one-tap install.
 
 It needs notification access too. If settings hide it:
 

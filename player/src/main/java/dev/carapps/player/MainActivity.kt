@@ -2,39 +2,32 @@ package dev.carapps.player
 
 import android.app.Activity
 import android.content.Intent
-import android.database.ContentObserver
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
 
     private lateinit var player: PlayerView
     private lateinit var media: MediaHub
-    private lateinit var audio: AudioManager
-
-    // Catches volume changes made elsewhere, such as the steering-wheel buttons.
-    private val volumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
-        override fun onChange(selfChange: Boolean) = syncVolume()
-    }
+    private lateinit var drive: DriveWatcher
+    private lateinit var updater: Updater
+    private var update: Updater.Release? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        audio = getSystemService(AudioManager::class.java)
 
         player = PlayerView(this)
         setContentView(player)
 
         media = MediaHub(this) { track, sources -> player.setTrack(track, sources, media.hasAccess()) }
+        drive = DriveWatcher(this) { driving -> player.driving = driving }
+        updater = Updater(this)
 
         player.listener = object : PlayerView.Listener {
             override fun onPlayPause() = media.playPause()
@@ -44,20 +37,25 @@ class MainActivity : Activity() {
             override fun onSelectSource(packageName: String) = media.select(packageName)
             override fun onOpenApp(packageName: String) = openApp(packageName)
             override fun onRequestAccess() = openListenerSettings()
+            override fun onAction(action: String) = media.sendAction(action)
+            override fun onQueueItem(id: Long) = media.skipToQueueItem(id)
 
-            override fun onVolume(fraction: Float) {
-                val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                try {
-                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, (fraction * max).roundToInt(), 0)
-                } catch (_: SecurityException) {
-                }
+            override fun onInstallUpdate() {
+                val r = update ?: return
+                updater.install(r) { status -> player.flashMessage(status, 5000) }
             }
         }
 
         val prefs = getSharedPreferences("player", MODE_PRIVATE)
         if (!prefs.getBoolean("hinted", false)) {
-            player.flashMessage("Swipe the cover to skip  ·  Tap the lit app chip to open it", 7000)
+            player.flashMessage("Swipe the cover to skip  ·  Tap the app name to switch apps", 7000)
             prefs.edit().putBoolean("hinted", true).apply()
+        }
+
+        // Once per launch: is there a newer build on GitHub?
+        updater.check { release ->
+            update = release
+            player.updateVersion = release?.versionCode ?: 0
         }
     }
 
@@ -66,12 +64,11 @@ class MainActivity : Activity() {
         hideSystemBars()
         media.start()
         player.launchApps = findMusicApps()
-        contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, volumeObserver)
-        syncVolume()
+        drive.start()
     }
 
     override fun onPause() {
-        contentResolver.unregisterContentObserver(volumeObserver)
+        drive.stop()
         media.stop()
         super.onPause()
     }
@@ -79,11 +76,6 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
-    }
-
-    private fun syncVolume() {
-        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        if (max > 0) player.setVolumeLevel(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max)
     }
 
     /** Installed apps that say they play music, for the "nothing playing" screen. */
