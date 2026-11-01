@@ -2,14 +2,15 @@ package dev.carapps.car
 
 /**
  * Turns raw ECARX sensor values into meaning, as measured with Car Probe on a Cityray.
+ * Each decoder says how sure we are.
  */
 object CarDecode {
 
     enum class Gear { P, R, N, D, UNKNOWN }
 
     /**
+     * CONFIRMED in the car on 2026-10-31.
      * Gear events are 0x200200 plus a step of 0x10: +0x40 P, +0x10 R, +0x20 N, +0x30 D.
-     * Confirmed in the car on 2026-10-31.
      */
     fun gear(event: Int): Gear = when (event - CarSensor.GEAR.id) {
         0x40 -> Gear.P
@@ -19,12 +20,15 @@ object CarDecode {
         else -> Gear.UNKNOWN
     }
 
-    /** Ignition events are 0x200100 plus a state number. Seen so far: +7. Meaning not mapped yet. */
+    /**
+     * OBSERVED. Ignition events are 0x200100 plus a state number. We have only seen +7
+     * (car on, parked, engine probably off). Other states are not mapped yet.
+     */
     fun ignitionStep(event: Int): Int = event - CarSensor.IGNITION.id
 
     /**
-     * Some sensors (RPM, fuel) send an integer packed into the float's bits, which shows
-     * up as a tiny number such as 1.4E-45. This returns the integer when that happens.
+     * OBSERVED. RPM and fuel send an integer packed into the float's bits, which shows up
+     * as a tiny number such as 1.4E-45. Returns that integer, or null for a normal float.
      */
     fun packedInt(value: Float): Int? {
         if (value == 0f || value.isNaN()) return null
@@ -32,4 +36,13 @@ object CarDecode {
         val exponent = (bits ushr 23) and 0xFF
         return if (exponent == 0) bits and 0x7FFFFF else null
     }
+
+    /** A sensor value as a number: the packed integer if there is one, else the float. */
+    fun number(value: Float): Float = packedInt(value)?.toFloat() ?: value
+
+    /** GUESS. Fuel level read about 25020; we assume millilitres, so about 25.0 litres. */
+    fun fuelLitres(value: Float): Float = number(value) / 1000f
+
+    /** OBSERVED that RPM is packed. Read 1 with the engine probably off. Recheck with it running. */
+    fun rpm(value: Float): Float = number(value)
 }

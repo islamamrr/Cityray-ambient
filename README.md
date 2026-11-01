@@ -34,4 +34,6 @@ adb shell cmd notification allow_listener dev.carapps.ambient/dev.carapps.ambien
 - `EcarxCar` reads sensors: ignition, gear, engine state, speed, RPM, fuel, odometer, steering angle. It's read-only.
 - `EcarxKeys` listens to steering-wheel keys. While it holds a key, the head unit skips that key's normal action, so always call `release()`.
 
+See [CAR_NOTES.md](CAR_NOTES.md) for every hook we know and how sure we are about each one.
+
 `Car Probe` is a debug app built on `carlib`. It shows every sensor's raw value live, logs each change, and can listen to the wheel buttons for 20 seconds. We use it to learn what each raw value means (for example, which gear number is P) before building features on top. GitHub Actions uploads it as the **CarProbe-apk** artifact.

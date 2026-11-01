@@ -17,6 +17,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import dev.carapps.car.CarDecode
+import dev.carapps.car.CarFunction
+import dev.carapps.car.CarInfo
+import dev.carapps.car.GeelyAppStore
+import dev.carapps.car.GlyCar
+import dev.carapps.car.Zone
 import dev.carapps.car.CarSensor
 import dev.carapps.car.EcarxCar
 import dev.carapps.car.EcarxKeys
@@ -33,6 +38,10 @@ class ProbeActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var car: EcarxCar
     private lateinit var keys: EcarxKeys
+    private lateinit var gly: GlyCar
+    private lateinit var extraView: TextView
+    private var tick = 0
+    private var appStoreCount: String = "-"
 
     private lateinit var statusView: TextView
     private lateinit var tableView: TextView
@@ -46,6 +55,7 @@ class ProbeActivity : Activity() {
     private val log = ArrayDeque<String>()
     private val keyLog = ArrayDeque<String>()
     private val lastSeen = HashMap<Int, String>()
+    private val lastFunction = HashMap<String, String>()
     private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
 
     private val refresh = object : Runnable {
@@ -62,6 +72,7 @@ class ProbeActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         car = EcarxCar(this)
         keys = EcarxKeys(this)
+        gly = GlyCar(this)
         setContentView(buildUi())
     }
 
@@ -76,10 +87,11 @@ class ProbeActivity : Activity() {
         main.removeCallbacks(refresh)
         releaseKeys("app paused")
         car.stop()
+        gly.disconnect()
     }
 
     private fun connect() {
-        val ok = car.start(object : EcarxCar.Listener {
+        val listener = object : EcarxCar.Listener {
             override fun onConnectionChanged(connected: Boolean) {
                 connection = if (connected) "connected" else "disconnected"
                 addLog("car service $connection")
@@ -88,8 +100,27 @@ class ProbeActivity : Activity() {
             override fun onValueChanged(sensorId: Int, value: Float) = pushed(sensorId, "value=${showValue(value)}")
             override fun onEventChanged(sensorId: Int, event: Int) = pushed(sensorId, "event=${showEvent(sensorId, event)}")
             override fun onSupportChanged(sensorId: Int, status: String) = pushed(sensorId, "support=$status")
-        })
-        addLog(if (ok) "started; listening to ${CarSensor.entries.size} sensors" else "start failed: ${car.lastError}")
+            override fun onFunctionChanged(functionId: Int, zone: Int, value: Float) {
+                val key = "f:$functionId:$zone"
+                val what = fmt(value)
+                if (lastFunction[key] == what) return
+                lastFunction[key] = what
+                val name = CarFunction.byId(functionId)?.label ?: EcarxCar.hex(functionId)
+                addLog("FUNC $name ${Zone.label(zone)} = $what")
+            }
+        }
+        val ok = car.start(listener)
+        addLog(if (ok) "started; listening to ${CarSensor.usable.size} sensors" else "start failed: ${car.lastError}")
+        if (ok) addLog(if (car.watchFunctions(listener)) "watching ${CarFunction.entries.size} car functions" else "functions: ${car.lastError}")
+
+        if (gly.connect()) {
+            addLog("GlyCar connected; ignition property = ${gly.intProperty(GlyCar.PROPERTY_IGNITION)}")
+            val listening = gly.listen(intArrayOf(GlyCar.PROPERTY_IGNITION)) { args -> addLog("GLYCAR event ${args.joinToString()}") }
+            if (!listening) addLog("GlyCar listen: ${gly.lastError}")
+        } else {
+            addLog("GlyCar: ${gly.lastError}")
+        }
+        appStoreCount = GeelyAppStore.listPackages(this)?.size?.toString() ?: "refused"
     }
 
     /** Counts every push, but only logs a sensor when its value actually changes. */
@@ -150,10 +181,44 @@ class ProbeActivity : Activity() {
                 val sup = car.supportStatus(s.id) ?: "-"
                 val pushes = pushCount[s.id] ?: 0
                 val fresh = lastChange[s.id]?.let { now - it < 1500 } == true
-                append(String.format(Locale.US, "%-22s %-10s %-14s %-14s %-7d %s%s\n",
-                    s.label, EcarxCar.hex(s.id), v, e, pushes, sup, if (fresh) "  *" else ""))
+                append(String.format(Locale.US, "%-22s %-10s %-14s %-14s %-7d %s%s  [%s]\n",
+                    s.label, EcarxCar.hex(s.id), v, e, pushes, sup, if (fresh) "  *" else "", short(s.confidence.name)))
             }
         }
+
+        // Functions and car info are binder calls on demand; refresh them every 2 seconds.
+        if (tick++ % 4 == 0) renderExtra()
+    }
+
+    private fun renderExtra() {
+        extraView.text = buildString {
+            append("CAR INFO  [all GUESS]\n")
+            for (i in CarInfo.entries) {
+                append(String.format(Locale.US, "%-24s %-10s %-12s %s\n",
+                    i.label, EcarxCar.hex(i.id), car.carInfo(i) ?: "-", car.carInfoStatus(i) ?: "-"))
+            }
+            append("\nCAR FUNCTIONS, read-only  [all GUESS]\n")
+            append(String.format(Locale.US, "%-30s %-11s %-11s %-9s %s\n", "FUNCTION", "ID", "ZONE", "VALUE", "SUPPORT"))
+            for (f in CarFunction.entries) {
+                for (z in f.zones) {
+                    val v = car.functionValue(f.id, z)?.toString() ?: "-"
+                    append(String.format(Locale.US, "%-30s %-11s %-11s %-9s %s\n",
+                        f.label.take(30), EcarxCar.hex(f.id), Zone.label(z), v, car.functionStatus(f.id, z) ?: "-"))
+                }
+            }
+            append("\nGlyCar API: ${if (gly.isAvailable) "found" else "NOT found"}")
+            append("  |  ignition property: ${gly.intProperty(GlyCar.PROPERTY_IGNITION) ?: "-"}\n")
+            append("Geely launcher app list: $appStoreCount apps\n")
+            append("Known key codes to try: ${EcarxKeys.KNOWN_CODES.joinToString()}")
+        }
+    }
+
+    private fun short(c: String) = when (c) {
+        "CONFIRMED" -> "ok"
+        "OBSERVED" -> "seen"
+        "GUESS" -> "guess"
+        else -> "n/a"
+    }
     }
 
     private fun addKey(line: String) {
@@ -198,11 +263,13 @@ class ProbeActivity : Activity() {
         tableView = text(15f, Color.WHITE, mono = true).also { root.addView(it, spaced()) }
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START }
-        row.addView(button("Reconnect") { car.stop(); connect() })
+        row.addView(button("Reconnect") { car.stop(); gly.disconnect(); connect() })
         keysButton = button("Listen to wheel buttons (${KEY_LISTEN_SECONDS}s)") { toggleKeys() }
         row.addView(keysButton)
         row.addView(button("Clear log") { log.clear(); logView.text = "" })
         root.addView(row, spaced())
+
+        extraView = text(13f, Color.rgb(220, 200, 255), mono = true).also { root.addView(it, spaced()) }
 
         keysView = text(22f, Color.rgb(255, 220, 120), mono = true).apply {
             text = "Wheel buttons show up here, newest on top."

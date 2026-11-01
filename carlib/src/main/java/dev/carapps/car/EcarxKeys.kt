@@ -82,6 +82,13 @@ class EcarxKeys(context: Context) {
     }
 
     companion object {
+        /**
+         * GUESS: key codes other apps use on this head unit. gbinder intercepts 200082 and
+         * 200164; the button app special-cases 200003. Which wheel button each one is
+         * hasn't been mapped yet.
+         */
+        val KNOWN_CODES = intArrayOf(200003, 200082, 200164)
+
         const val INPUT_CLASS = "com.ecarx.xui.adaptapi.input.Input"
         const val KEY_CALLBACK_CLASS = "com.ecarx.xui.adaptapi.input.IKeyCallback"
     }
