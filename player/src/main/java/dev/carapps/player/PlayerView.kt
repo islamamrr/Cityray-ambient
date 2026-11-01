@@ -13,7 +13,7 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.drawable.Drawable
+import android.graphics.Typeface
 import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
@@ -29,9 +29,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/** A music app the empty screen can launch. */
-class LaunchApp(val packageName: String, val label: String, val icon: Drawable)
-
 /**
  * The whole player, drawn by hand on a Canvas: a top bar, three tabs (Now playing,
  * Up next, Sources) and a bottom dock. Colours follow the album art.
@@ -45,21 +42,13 @@ class PlayerView(context: Context) : View(context) {
         fun onSeek(ms: Long)
         fun onAction(action: String)
         fun onQueueItem(id: Long)
-        fun onSelectSource(packageName: String)
-        fun onOpenApp(packageName: String)
         fun onRequestAccess()
         fun onInstallUpdate()
     }
 
-    private enum class Tab { NOW, LYRICS, QUEUE, SOURCES }
+    private enum class Tab { NOW, LYRICS, QUEUE }
 
     var listener: Listener? = null
-
-    var launchApps: List<LaunchApp> = emptyList()
-        set(v) {
-            field = v
-            invalidate()
-        }
 
     /** Lyrics for the current song, set by the activity. */
     var lyrics: Lyrics? = null
@@ -113,7 +102,7 @@ class PlayerView(context: Context) : View(context) {
     private val lyricTops = ArrayList<Float>()
 
     // Touch.
-    private enum class Target { NONE, SEEK, ART, PREV, PLAY, NEXT, ACTION, TAB, PILL, ROW, LYRIC, SOURCE, APP, ACCESS, RESUME, UPDATE }
+    private enum class Target { NONE, SEEK, ART, PREV, PLAY, NEXT, ACTION, TAB, ROW, LYRIC, ACCESS, RESUME, UPDATE, DEBUG }
     private var target = Target.NONE
     private var pressed = Target.NONE
     private var targetIndex = -1
@@ -131,6 +120,10 @@ class PlayerView(context: Context) : View(context) {
     private val accessRect = RectF()
     private val resumeRect = RectF()
     private val updateRect = RectF()
+    private val clockRect = RectF()
+
+    /** Tapping the clock shows what the music app sends (cover sizes, links, queue). */
+    private var showDebug = false
     private var ctrlY = 0f
     private var prevX = 0f
     private var playX = 0f
@@ -139,8 +132,6 @@ class PlayerView(context: Context) : View(context) {
     private val actionRects = ArrayList<RectF>()
     private val tabRects = ArrayList<Pair<Tab, RectF>>()
     private val rowRects = ArrayList<Pair<Long, RectF>>()
-    private val sourceRects = ArrayList<RectF>()
-    private val appRects = ArrayList<RectF>()
     private var listTop = 0f
     private var listBottom = 0f
     private var listMaxScroll = 0f
@@ -231,18 +222,17 @@ class PlayerView(context: Context) : View(context) {
 
         actionRects.clear()
         rowRects.clear()
-        sourceRects.clear()
-        appRects.clear()
         val t = track
         when {
             !hasAccess -> drawNoAccess(canvas, w, top, bottom)
-            tab == Tab.SOURCES -> drawSources(canvas, w, top, bottom)
             tab == Tab.QUEUE && t != null -> drawQueue(canvas, w, top, bottom, t)
             tab == Tab.LYRICS && t != null -> if (drawLyrics(canvas, w, top, bottom, t)) animating = true
             t == null -> drawNothingPlaying(canvas, w, top, bottom)
             else -> if (drawNowPlaying(canvas, w, top, bottom, t)) animating = true
         }
         if (layer >= 0) canvas.restoreToCount(layer)
+
+        if (showDebug && t != null) drawDebug(canvas, w, top, t.debug)
 
         val msg = message
         if (msg != null && now < messageUntil) {
@@ -320,6 +310,25 @@ class PlayerView(context: Context) : View(context) {
         val cw = text.measureText(clock)
         val clockX = w - 6f * u - cw
         canvas.drawText(clock, clockX, cy + 1.4f * u, text)
+        clockRect.set(clockX - 2f * u, cy - 5f * u, w, cy + 5f * u)
+        var right = clockX - 3f * u
+
+        // "Update" chip, only when a newer build is published.
+        updateRect.setEmpty()
+        if (updateVersion > 0) {
+            text.typeface = fonts.displaySemi
+            text.textSize = 3.2f * u
+            val label = "Update"
+            val uw = text.measureText(label) + 6f * u
+            val ph = 8f * u
+            updateRect.set(right - uw, cy - ph / 2, right, cy + ph / 2)
+            fill.shader = LinearGradient(updateRect.left, 0f, updateRect.right, 0f, accent, accent2, Shader.TileMode.CLAMP)
+            canvas.drawRoundRect(updateRect, ph / 2, ph / 2, fill)
+            fill.shader = null
+            text.color = DARK
+            canvas.drawText(label, updateRect.left + 3f * u, cy + 1.1f * u, text)
+            right = updateRect.left - 2f * u
+        }
 
         pillRect.setEmpty()
         val t = track
@@ -329,9 +338,8 @@ class PlayerView(context: Context) : View(context) {
             val label = TextUtils.ellipsize(t.appLabel, text, 30f * u, TextUtils.TruncateAt.END).toString()
             val lw = text.measureText(label)
             val ph = 8f * u
-            val right = clockX - 3f * u
             pillRect.set(right - (lw + 10.6f * u), cy - ph / 2, right, cy + ph / 2)
-            fill.color = if (pressed == Target.PILL) 0x2EFFFFFF else 0x1AFFFFFF
+            fill.color = 0x1AFFFFFF
             canvas.drawRoundRect(pillRect, ph / 2, ph / 2, fill)
             val icon = sources.firstOrNull { it.packageName == t.packageName }?.icon
             val ir = 2.5f * u
@@ -368,7 +376,6 @@ class PlayerView(context: Context) : View(context) {
         tabs.add(Tab.NOW)
         if (track != null) tabs.add(Tab.LYRICS)
         if (!track?.queue.isNullOrEmpty()) tabs.add(Tab.QUEUE)
-        tabs.add(Tab.SOURCES)
         tabRects.clear()
         val slot = w / tabs.size
         text.typeface = fonts.bodyMedium
@@ -405,27 +412,12 @@ class PlayerView(context: Context) : View(context) {
                     canvas.drawLine(cx - r, iy + r * 0.6f, cx - r * 0.15f, iy + r * 0.6f, stroke)
                     drawPlay(canvas, cx + r * 0.65f, iy + r * 0.45f, r * 0.42f, iconColor)
                 }
-                Tab.SOURCES -> {
-                    fill.color = iconColor
-                    val s = r * 0.8f
-                    val g = r * 0.2f
-                    for (dx in listOf(-1, 1)) for (dy in listOf(-1, 1)) {
-                        val l = cx + (if (dx < 0) -s - g / 2 else g / 2)
-                        val tp = iy + (if (dy < 0) -s - g / 2 else g / 2)
-                        tmp.set(l, tp, l + s, tp + s)
-                        stroke.color = iconColor
-                        stroke.strokeWidth = 0.5f * u
-                        canvas.drawRoundRect(tmp, s * 0.28f, s * 0.28f, stroke)
-                    }
-                    if (updateVersion > 0) canvas.drawCircle(cx + r * 1.2f, iy - r * 1.1f, 0.9f * u, fill.apply { color = accent })
-                }
             }
             text.color = if (on) INK else MUTED
             val label = when (tb) {
                 Tab.NOW -> "Now playing"
                 Tab.LYRICS -> "Lyrics"
                 Tab.QUEUE -> "Up next"
-                Tab.SOURCES -> "Sources"
             }
             canvas.drawText(label, cx - text.measureText(label) / 2, top + 13f * u, text)
         }
@@ -750,83 +742,6 @@ class PlayerView(context: Context) : View(context) {
         return -1
     }
 
-    private fun drawSources(canvas: Canvas, w: Float, top: Float, bottom: Float) {
-        var y = top + 8f * u
-        text.typeface = fonts.displayBold
-        text.textSize = 7f * u
-        text.color = INK
-        canvas.drawText("Sources", 6f * u, y, text)
-        y += 6f * u
-        text.typeface = fonts.body
-        text.textSize = 3.4f * u
-        text.color = MUTED
-        canvas.drawText(
-            if (sources.isEmpty()) "No app has music loaded right now." else "Apps that have music loaded right now. Tap one to control it.",
-            6f * u, y, text,
-        )
-        y += 5f * u
-
-        val gap = 3f * u
-        val cw = (w - 12f * u - gap) / 2
-        val ch = 30f * u
-        sources.take(6).forEachIndexed { i, s ->
-            val col = i % 2
-            val row = i / 2
-            val l = 6f * u + col * (cw + gap)
-            val t = y + row * (ch + gap)
-            val r = RectF(l, t, l + cw, t + ch)
-            sourceRects.add(r)
-            val sel = s.packageName == track?.packageName
-            fill.color = if (sel) 0x24FFFFFF else if (pressed == Target.SOURCE && targetIndex == i) 0x1AFFFFFF else 0x0FFFFFFF
-            canvas.drawRoundRect(r, 5f * u, 5f * u, fill)
-            if (sel) {
-                stroke.color = 0x33FFFFFF
-                stroke.strokeWidth = max(1f, 0.2f * u)
-                canvas.drawRoundRect(r, 5f * u, 5f * u, stroke)
-            }
-            val icon = s.icon
-            val isz = 12f * u
-            if (icon != null) {
-                icon.setBounds((l + 4f * u).toInt(), (t + 4f * u).toInt(), (l + 4f * u + isz).toInt(), (t + 4f * u + isz).toInt())
-                icon.draw(canvas)
-            }
-            text.typeface = fonts.bodyMedium
-            text.textSize = 4f * u
-            text.color = INK
-            val n = TextUtils.ellipsize(s.label, text, cw - 8f * u, TextUtils.TruncateAt.END)
-            canvas.drawText(n, 0, n.length, l + 4f * u, t + 22f * u, text)
-            text.typeface = fonts.body
-            text.textSize = 3f * u
-            text.color = MUTED
-            var sx = l + 4f * u
-            if (s.isPlaying) {
-                fill.color = accent
-                canvas.drawCircle(sx + 0.8f * u, t + 25.9f * u, 0.8f * u, fill)
-                sx += 3f * u
-            }
-            canvas.drawText(if (s.isPlaying) "Playing" else "Paused", sx, t + 27f * u, text)
-        }
-
-        // Update card, only when a newer build is published.
-        updateRect.setEmpty()
-        if (updateVersion > 0) {
-            val rows = (min(sources.size, 6) + 1) / 2
-            val ut = y + rows * (ch + gap) + 2f * u
-            updateRect.set(6f * u, ut, w - 6f * u, ut + 16f * u)
-            fill.color = if (pressed == Target.UPDATE) 0x24FFFFFF else 0x0FFFFFFF
-            canvas.drawRoundRect(updateRect, 5f * u, 5f * u, fill)
-            text.typeface = fonts.bodyMedium
-            text.textSize = 4f * u
-            text.color = INK
-            canvas.drawText("Update available", updateRect.left + 4f * u, updateRect.top + 7f * u, text)
-            text.typeface = fonts.body
-            text.textSize = 3.2f * u
-            text.color = MUTED
-            canvas.drawText("Build $updateVersion · tap to install", updateRect.left + 4f * u, updateRect.top + 12f * u, text)
-            drawPlayButtonSmall(canvas, updateRect.right - 8f * u, updateRect.centerY())
-        }
-    }
-
     private fun drawNothingPlaying(canvas: Canvas, w: Float, top: Float, bottom: Float) {
         val cx = w / 2f
         var y = top + max(14f * u, (bottom - top) * 0.16f)
@@ -857,37 +772,6 @@ class PlayerView(context: Context) : View(context) {
         text.color = DARK
         canvas.drawText("Resume music", resumeRect.left + 14f * u, resumeRect.centerY() + 1.4f * u, text)
         canvas.restore()
-        y += 22f * u
-
-        if (launchApps.isEmpty()) return
-        text.typeface = fonts.bodyMedium
-        text.textSize = 3.2f * u
-        text.color = MUTED
-        drawCentered(canvas, "Or open a music app", cx, y)
-        y += 6f * u
-        val cols = 4
-        val cell = 21f * u
-        val icon = 12f * u
-        val apps = launchApps.take(8)
-        val rows = (apps.size + cols - 1) / cols
-        text.typeface = fonts.body
-        text.textSize = 2.8f * u
-        for (row in 0 until rows) {
-            val inRow = min(cols, apps.size - row * cols)
-            val rowLeft = cx - inRow * cell / 2f
-            for (col in 0 until inRow) {
-                val app = apps[row * cols + col]
-                val ix = rowLeft + col * cell + cell / 2f
-                val iy = y + row * (cell + 4f * u)
-                if (iy + icon > bottom) return
-                appRects.add(RectF(ix - cell / 2, iy - 2f * u, ix + cell / 2, iy + icon + 6f * u))
-                app.icon.setBounds((ix - icon / 2).toInt(), iy.toInt(), (ix + icon / 2).toInt(), (iy + icon).toInt())
-                app.icon.draw(canvas)
-                text.color = 0xCCFFFFFF.toInt()
-                val label = TextUtils.ellipsize(app.label, text, cell - 2f * u, TextUtils.TruncateAt.END).toString()
-                drawCentered(canvas, label, ix, iy + icon + 4.5f * u)
-            }
-        }
     }
 
     private fun drawNoAccess(canvas: Canvas, w: Float, top: Float, bottom: Float) {
@@ -915,6 +799,21 @@ class PlayerView(context: Context) : View(context) {
         text.textSize = 3.8f * u
         text.color = DARK
         drawCentered(canvas, "Open settings", cx, accessRect.centerY() + 1.3f * u)
+    }
+
+    private fun drawDebug(canvas: Canvas, w: Float, top: Float, info: String) {
+        text.typeface = Typeface.MONOSPACE
+        text.textSize = 2.4f * u
+        val lines = info.lines()
+        val lh = 3.4f * u
+        tmp.set(3f * u, top, w - 3f * u, top + lines.size * lh + 4f * u)
+        fill.color = 0xE6000000.toInt()
+        canvas.drawRoundRect(tmp, 2f * u, 2f * u, fill)
+        text.color = 0xFF9EFFB0.toInt()
+        lines.forEachIndexed { i, line ->
+            val l = TextUtils.ellipsize(line, text, tmp.width() - 4f * u, TextUtils.TruncateAt.MIDDLE)
+            canvas.drawText(l, 0, l.length, tmp.left + 2f * u, top + 3f * u + (i + 0.7f) * lh, text)
+        }
     }
 
     private fun drawToast(canvas: Canvas, w: Float, bottom: Float, msg: String) {
@@ -1134,23 +1033,13 @@ class PlayerView(context: Context) : View(context) {
             Target.NEXT -> l.onNext()
             Target.ACTION -> t?.actions?.getOrNull(targetIndex)?.let { l.onAction(it.action) }
             Target.TAB -> tabRects.getOrNull(targetIndex)?.let { showTab(it.first) }
-            Target.PILL -> showTab(Tab.SOURCES)
+            Target.DEBUG -> {
+                showDebug = !showDebug
+                invalidate()
+            }
             Target.ROW -> rowRects.getOrNull(targetIndex)?.let {
                 l.onQueueItem(it.first)
                 showTab(Tab.NOW)
-            }
-            Target.SOURCE -> sources.getOrNull(targetIndex)?.let {
-                if (it.packageName == t?.packageName) l.onOpenApp(it.packageName) else l.onSelectSource(it.packageName)
-                showTab(Tab.NOW)
-            }
-            Target.APP -> launchApps.getOrNull(targetIndex)?.let { l.onOpenApp(it.packageName) }
-            Target.LYRIC -> {
-                val synced = lyrics as? Lyrics.Synced
-                val line = synced?.lines?.getOrNull(targetIndex)
-                if (line != null && t != null && t.canSeek) {
-                    l.onSeek(line.first)
-                    lyricManualUntil = 0L
-                }
             }
             Target.ACCESS -> l.onRequestAccess()
             Target.UPDATE -> l.onInstallUpdate()
@@ -1175,14 +1064,11 @@ class PlayerView(context: Context) : View(context) {
                 return Target.TAB
             }
         }
-        if (!pillRect.isEmpty && pillRect.contains(x, y)) return Target.PILL
+        if (clockRect.contains(x, y)) return Target.DEBUG
+        if (!updateRect.isEmpty && updateRect.contains(x, y)) return Target.UPDATE
         if (!hasAccess) return if (accessRect.contains(x, y)) Target.ACCESS else Target.NONE
         val t = track
         when {
-            tab == Tab.SOURCES -> {
-                if (!updateRect.isEmpty && updateRect.contains(x, y)) return Target.UPDATE
-                return idx(sourceRects, Target.SOURCE) ?: Target.NONE
-            }
             tab == Tab.LYRICS && t != null -> {
                 val i = lyricAt(y)
                 if (i < 0) return Target.NONE
@@ -1199,8 +1085,7 @@ class PlayerView(context: Context) : View(context) {
                 return Target.NONE
             }
             t == null -> {
-                if (resumeRect.contains(x, y)) return Target.RESUME
-                return idx(appRects, Target.APP) ?: Target.NONE
+                return if (resumeRect.contains(x, y)) Target.RESUME else Target.NONE
             }
         }
         if (artRect.contains(x, y)) return Target.ART

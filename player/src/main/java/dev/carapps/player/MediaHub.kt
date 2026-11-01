@@ -43,6 +43,8 @@ data class Track(
     val queue: List<QueueEntry>,
     /** Queue id of the current song, or -1 if unknown. */
     val queueCurrentId: Long,
+    /** What the app actually sent, shown when you tap the clock. */
+    val debug: String,
 ) {
     fun positionNow(): Long {
         if (!isPlaying) return positionMs
@@ -112,11 +114,6 @@ class MediaHub(
         controllers.forEach { it.unregisterCallback(controllerCallback) }
         controllers = emptyList()
         current = null
-    }
-
-    fun select(packageName: String) {
-        pinned = packageName
-        refresh()
     }
 
     fun playPause() {
@@ -236,13 +233,16 @@ class MediaHub(
             ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
             ?: ""
         val album = md.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
-        val art = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+        // Android shrinks cover bitmaps passed through a media session, so a link to the
+        // full-size cover wins when the app sends one; the small bitmap shows while it loads.
+        val artUri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+        val bitmap = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
-            // Many apps (Spotify among them) send only a link to the cover.
-            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI))
-            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_ART_URI))
-            ?: artLoader.get(md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI))
+        val art = artLoader.get(artUri) ?: bitmap
+        val queue = c.queue.orEmpty()
         val state = c.playbackState
         onChange(
             Track(
@@ -261,11 +261,22 @@ class MediaHub(
                 actions = state?.customActions.orEmpty().map {
                     AppAction(it.action, it.name?.toString() ?: "", actionIcon(c.packageName, it.icon))
                 },
-                queue = c.queue.orEmpty().map { item ->
+                queue = queue.map { item ->
                     val d = item.description
                     QueueEntry(item.queueId, d.title?.toString() ?: "", d.subtitle?.toString() ?: "", d.iconBitmap ?: artLoader.get(d.iconUri?.toString()))
                 },
                 queueCurrentId = state?.activeQueueItemId ?: -1L,
+                debug = listOf(
+                    "app: ${c.packageName}",
+                    "cover bitmap: " + (bitmap?.let { "${it.width}x${it.height}" } ?: "none"),
+                    "cover link: " + (artUri ?: "none"),
+                    "showing: " + (art?.let { "${it.width}x${it.height}" } ?: "nothing"),
+                    "queue: ${queue.size} songs",
+                    "first queue picture: " + (queue.firstOrNull()?.description?.let { d ->
+                        (d.iconBitmap?.let { "${it.width}x${it.height}" } ?: "no bitmap") + ", link " + (d.iconUri ?: "none")
+                    } ?: "-"),
+                    "app buttons: " + (state?.customActions.orEmpty().joinToString { it.name.toString() }.ifBlank { "none" }),
+                ).joinToString("\n"),
             ),
             sources,
         )

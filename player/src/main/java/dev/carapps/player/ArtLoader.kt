@@ -55,7 +55,11 @@ class ArtLoader(context: Context, private val onLoaded: () -> Unit) {
     }
 
     private fun open(uri: String): InputStream? {
-        val fixed = if (uri.startsWith("spotify:image:")) "https://i.scdn.co/image/" + uri.removePrefix("spotify:image:") else uri
+        var fixed = if (uri.startsWith("spotify:image:")) "https://i.scdn.co/image/" + uri.removePrefix("spotify:image:") else uri
+        // Spotify cover ids encode their size; ask for the 640 px version instead of 64 or 300.
+        if (fixed.contains("i.scdn.co/image/")) {
+            fixed = fixed.replace("ab67616d00004851", "ab67616d0000b273").replace("ab67616d00001e02", "ab67616d0000b273")
+        }
         return when (Uri.parse(fixed).scheme) {
             "http", "https" -> (URL(fixed).openConnection() as HttpURLConnection).run {
                 connectTimeout = 8_000

@@ -38,8 +38,6 @@ class MainActivity : Activity() {
             override fun onNext() = media.next()
             override fun onPrevious() = media.previous()
             override fun onSeek(ms: Long) = media.seekTo(ms)
-            override fun onSelectSource(packageName: String) = media.select(packageName)
-            override fun onOpenApp(packageName: String) = openApp(packageName)
             override fun onRequestAccess() = openListenerSettings()
             override fun onAction(action: String) = media.sendAction(action)
             override fun onQueueItem(id: Long) = media.skipToQueueItem(id)
@@ -52,7 +50,7 @@ class MainActivity : Activity() {
 
         val prefs = getSharedPreferences("player", MODE_PRIVATE)
         if (!prefs.getBoolean("hinted", false)) {
-            player.flashMessage("Swipe the cover to skip  ·  Tap the app name to switch apps", 7000)
+            player.flashMessage("Swipe the cover to skip  ·  Tap the clock to see what the app sends", 7000)
             prefs.edit().putBoolean("hinted", true).apply()
         }
 
@@ -67,7 +65,6 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemBars()
         media.start()
-        player.launchApps = findMusicApps()
     }
 
     override fun onPause() {
@@ -90,46 +87,6 @@ class MainActivity : Activity() {
             player.lyrics = it
             // No internet: try again on the next update from the music app.
             if (it == Lyrics.Offline) lyricsKey = ""
-        }
-    }
-
-    /** Installed apps that say they play music, for the "nothing playing" screen. */
-    private fun findMusicApps(): List<LaunchApp> {
-        val pm = packageManager
-        val found = LinkedHashMap<String, LaunchApp>()
-        val queries = listOf(
-            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC),
-            Intent("android.media.browse.MediaBrowserService"),
-        )
-        for (q in queries) {
-            val results = try {
-                if (q.action == Intent.ACTION_MAIN) pm.queryIntentActivities(q, 0) else pm.queryIntentServices(q, 0)
-            } catch (_: Exception) {
-                emptyList()
-            }
-            for (r in results) {
-                val pkg = (r.activityInfo ?: r.serviceInfo)?.packageName ?: continue
-                if (pkg == packageName || pkg in found || pm.getLaunchIntentForPackage(pkg) == null) continue
-                try {
-                    val info = pm.getApplicationInfo(pkg, 0)
-                    found[pkg] = LaunchApp(pkg, pm.getApplicationLabel(info).toString(), pm.getApplicationIcon(info))
-                } catch (_: Exception) {
-                }
-            }
-        }
-        return found.values.sortedBy { it.label.lowercase() }
-    }
-
-    private fun openApp(pkg: String) {
-        val intent = packageManager.getLaunchIntentForPackage(pkg)
-        if (intent == null) {
-            player.flashMessage("Can't open that app from here.", 3000)
-            return
-        }
-        try {
-            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: Exception) {
-            player.flashMessage("Can't open that app from here.", 3000)
         }
     }
 
