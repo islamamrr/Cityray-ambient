@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Geely permission names, declared by the apps that read car data on this head unit. -->
+    <uses-permission android:name="geely.oneos.permission.SERVICE" />
+    <!-- GUESS: needed to read Geely's launcher app list (see GeelyAppStore). -->
+    <uses-permission android:name="com.geely.appstore.APPSTORE_PROVIDER" />
+
+    <!-- Android 11 hides other apps' providers unless we declare them. -->
+    <queries>
+        <provider android:authorities="com.geely.appstore.AppstoreProvider" />
+    </queries>
+</manifest>
