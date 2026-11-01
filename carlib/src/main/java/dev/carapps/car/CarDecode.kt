@@ -6,18 +6,20 @@ package dev.carapps.car
  */
 object CarDecode {
 
-    enum class Gear { P, R, N, D, UNKNOWN }
+    /** OTHER is a gear reading we don't recognise. Treat it as "not in Park". UNKNOWN means no reading. */
+    enum class Gear { P, R, N, D, OTHER, UNKNOWN }
 
     /**
-     * CONFIRMED in the car on 2026-10-31.
-     * Gear events are 0x200200 plus a step of 0x10: +0x40 P, +0x10 R, +0x20 N, +0x30 D.
+     * P (+0x40) CONFIRMED in the car on 2026-10-31. R, N and D were assigned from the
+     * order of shifting and are not certain: on 2026-11-01 reverse did not register as
+     * leaving Park. So any value other than P comes back as at least [Gear.OTHER].
      */
     fun gear(event: Int): Gear = when (event - CarSensor.GEAR.id) {
         0x40 -> Gear.P
         0x10 -> Gear.R
         0x20 -> Gear.N
         0x30 -> Gear.D
-        else -> Gear.UNKNOWN
+        else -> Gear.OTHER
     }
 
     /**

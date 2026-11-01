@@ -8,7 +8,6 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import dev.carapps.car.CarDecode
 
 class MainActivity : Activity() {
 
@@ -20,20 +19,30 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sounds = Sounds(this)
-        wheel = Wheel(this) { old, new -> onGear(old, new) }
+        wheel = Wheel(this) { old, new -> onPark(old, new) }
         view = TumblerView(this, wheel, sounds)
         setContentView(view)
+        askCarPermissions()
+    }
+
+    /**
+     * Android's car API guards gear, speed and steering behind these. The ones the head unit
+     * treats as runtime permissions get a prompt; the rest are granted at install or refused.
+     */
+    private fun askCarPermissions() {
+        val wanted = CAR_PERMISSIONS.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (wanted.isNotEmpty()) runCatching { requestPermissions(wanted.toTypedArray(), 1) }
     }
 
     /**
      * Park only. Out of Park the game pauses behind a "Shift to P" screen, and on a
      * P -> other shift the app also steps aside so the car's normal screen comes back.
-     * Only a known gear blocks, so a missing reading can't lock the app.
+     * With no gear reading at all (a phone) nothing blocks.
      */
-    private fun onGear(old: CarDecode.Gear, new: CarDecode.Gear) {
-        val moving = new != CarDecode.Gear.P && new != CarDecode.Gear.UNKNOWN
+    private fun onPark(old: Wheel.Park, new: Wheel.Park) {
+        val moving = new == Wheel.Park.NOT_PARKED
         view.blocked = moving
-        if (old == CarDecode.Gear.P && moving) moveTaskToBack(true)
+        if (old == Wheel.Park.PARKED && moving && !view.showingSignals) moveTaskToBack(true)
     }
 
     /** Arrow keys and the wheel's next / previous buttons (if the head unit passes them on) nudge the dial. */
@@ -69,6 +78,14 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    companion object {
+        private val CAR_PERMISSIONS = listOf(
+            "android.car.permission.CAR_POWERTRAIN",
+            "android.car.permission.CAR_SPEED",
+            "android.car.permission.READ_CAR_STEERING",
+        )
     }
 
     @Suppress("DEPRECATION")

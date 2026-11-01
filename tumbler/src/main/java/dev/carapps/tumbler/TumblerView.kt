@@ -35,7 +35,7 @@ class TumblerView(
     private val sounds: Sounds,
 ) : View(context), Choreographer.FrameCallback, Heist.Feedback {
 
-    private enum class Screen { TITLE, CAL_STRAIGHT, CAL_LEFT, PARTY_SETUP, BRIEF, PLAY, CRACKED, FAILED, PARTY_RESULTS }
+    private enum class Screen { TITLE, CAL_STRAIGHT, CAL_LEFT, PARTY_SETUP, BRIEF, PLAY, CRACKED, FAILED, PARTY_RESULTS, SIGNALS }
 
     private class Btn(val r: RectF, val action: () -> Unit)
     private class Blip(val t: Float, val amp: Float, val heavy: Boolean)
@@ -48,6 +48,9 @@ class TumblerView(
     private var clock = 0f
     private var running = false
     private var lastFrame = 0L
+
+    /** True on the Car signals screen, which stays up while shifting so the gear readings can be seen. */
+    val showingSignals: Boolean get() = screen == Screen.SIGNALS
 
     /** Set by the activity: true while the car is known to be out of Park. */
     var blocked = false
@@ -276,7 +279,7 @@ class TumblerView(
     // ---------------------------------------------------------------- touch
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (blocked) return true
+        if (blocked && screen != Screen.SIGNALS) return true
         val (cx, cy, r) = dialGeometry()
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -356,9 +359,10 @@ class TumblerView(
             Screen.CRACKED -> drawCracked(canvas, w, h)
             Screen.FAILED -> drawFailed(canvas, w, h)
             Screen.PARTY_RESULTS -> drawPartyResults(canvas, w, h)
+            Screen.SIGNALS -> drawSignals(canvas, w, h)
         }
 
-        if (blocked) drawBlocked(canvas, w, h)
+        if (blocked && screen != Screen.SIGNALS) drawBlocked(canvas, w, h)
     }
 
     private fun drawTitle(c: Canvas, w: Float, h: Float) {
@@ -372,7 +376,7 @@ class TumblerView(
         val (msg, col) = when {
             wheel.live && wheel.calibrated -> "Steering wheel connected. Turn it and the dial follows." to GREEN
             wheel.live -> "Steering wheel found. It needs a quick calibration before the first vault." to GOLD
-            wheel.connected -> "Waiting for the steering wheel. Switch the car on and turn the wheel a little. You can also drag the dial with a finger." to DIM
+            wheel.connected -> "Waiting for the steering wheel. Switch the car on and turn the wheel a little. You can also drag the dial with a finger. If it never shows up, open Car signals." to DIM
             else -> "No car data on this device. Drag the dial with a finger." to DIM
         }
         y = paragraph(c, msg, w / 2, y, w - 14f * u, 3.3f * u, col)
@@ -388,7 +392,9 @@ class TumblerView(
             calMsg = null
             go(Screen.CAL_STRAIGHT)
         }
-        button(c, if (sounds.muted) "Sound: off" else "Sound: on", w / 2, y, bw * 0.5f, false) { sounds.muted = !sounds.muted }
+        val half = (bw - 3f * u) / 2f
+        button(c, if (sounds.muted) "Sound: off" else "Sound: on", w / 2 - half / 2 - 1.5f * u, y, half, false) { sounds.muted = !sounds.muted }
+        button(c, "Car signals", w / 2 + half / 2 + 1.5f * u, y, half, false) { go(Screen.SIGNALS) }
         label(c, "Park only. Best with the car switched on and the sound up.", w / 2, h - 4f * u, 2.8f * u, DIM)
     }
 
@@ -713,6 +719,33 @@ class TumblerView(
         val bw = min(w - 16f * u, 60f * u)
         y = button(c, "Play again (new vault)", w / 2, y, bw, true) { startParty(partyPlayers) }
         button(c, "Menu", w / 2, y, bw, false) { go(Screen.TITLE) }
+    }
+
+    /** Live raw readings from every route, to find which one carries gear and steering on this car. */
+    private fun drawSignals(c: Canvas, w: Float, h: Float) {
+        label(c, "Car signals", w / 2, h * 0.08f, 7f * u, GOLD, bold)
+        var y = paragraph(
+            c,
+            "Turn the wheel all the way both ways, then shift through R, N and D with your foot on the brake and back to P. Then take a photo of this screen and send it to Claude.",
+            w / 2, h * 0.08f + 4f * u, w - 12f * u, 3.2f * u, DIM,
+        )
+        y += 3f * u
+        text.typeface = mono
+        text.textSize = 2.9f * u
+        text.color = INK
+        text.textAlign = Paint.Align.LEFT
+        text.letterSpacing = 0f
+        val x = 6f * u
+        for (line in wheel.diagnostics()) {
+            for (part in wrap(line, w - 12f * u)) {
+                c.drawText(part, x, y, text)
+                y += 4f * u
+            }
+            y += 1.2f * u
+        }
+        text.textAlign = Paint.Align.CENTER
+        y = max(y + 4f * u, h * 0.80f)
+        button(c, "Back", w / 2, y, min(w - 16f * u, 60f * u), true) { go(Screen.TITLE) }
     }
 
     private fun drawBlocked(c: Canvas, w: Float, h: Float) {
