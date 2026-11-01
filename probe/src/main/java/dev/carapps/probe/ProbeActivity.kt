@@ -219,7 +219,6 @@ class ProbeActivity : Activity() {
         "GUESS" -> "guess"
         else -> "n/a"
     }
-    }
 
     private fun addKey(line: String) {
         keyLog.addFirst("${clock.format(Date())}  $line")
