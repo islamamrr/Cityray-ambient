@@ -137,10 +137,10 @@ class ProbeActivity : Activity() {
             releaseKeys("stopped")
             return
         }
-        val codes = IntArray(KEY_RANGE_SIZE) { KEY_RANGE_START + it }
+        val codes = (IntArray(KEY_RANGE_SIZE) { KEY_RANGE_START + it } + EcarxKeys.KNOWN_CODES).distinct().toIntArray()
         val granted = keys.intercept(codes, object : EcarxKeys.Listener {
-            override fun onKeyPressed(code: Int) = addKey("DOWN $code")
-            override fun onKeyReleased(code: Int) = addKey("UP   $code")
+            override fun onKeyPressed(code: Int) = addKey("DOWN $code  ${EcarxKeys.name(code)}")
+            override fun onKeyReleased(code: Int) = addKey("UP   $code  ${EcarxKeys.name(code)}")
         })
         if (!keys.isHolding) {
             addLog("buttons: failed: ${keys.lastError}")
@@ -209,7 +209,7 @@ class ProbeActivity : Activity() {
             append("\nGlyCar API: ${if (gly.isAvailable) "found" else "NOT found"}")
             append("  |  ignition property: ${gly.intProperty(GlyCar.PROPERTY_IGNITION) ?: "-"}\n")
             append("Geely launcher app list: $appStoreCount apps\n")
-            append("Known key codes to try: ${EcarxKeys.KNOWN_CODES.joinToString()}")
+            append("Known wheel keys (from APK): ${EcarxKeys.KNOWN_CODES.size} codes")
         }
     }
 

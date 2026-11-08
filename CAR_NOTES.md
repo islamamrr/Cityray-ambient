@@ -51,7 +51,8 @@ These come from the ECARX interface: fuel types 0x100100, vehicle types 0x100200
 ## Steering-wheel keys (`EcarxKeys`)
 
 - Interception takes the key away from the head unit until `release()` is called. **OBSERVED**: the input API was found.
-- Codes are in the 200000 range. GUESS: gbinder intercepts 200082 and 200164, and the button app special-cases 200003. No button-to-code map yet, because that test was postponed.
+- Callback: `IKeyCallback.onKeyPressed(int code)` / `onKeyReleased(int code)` (and `onKeyCanceled`). Returning true consumes the key.
+- **GUESS (from APK):** wheel codes, named by the button app and ECARX's `KeyCode` table: 200087 next, 200088 previous, 200085 play/pause, 200164 mute, 200082 mode/menu, 200231 voice/phone, 200003 home, 200024/200025 volume up/down, 200400 unnamed extra button. Knobs: 110007–110010. Car Probe 0.4 shows these names live; confirm each one in the car.
 
 ## GlyCar (`GlyCar`), GUESS
 

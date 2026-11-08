@@ -83,11 +83,36 @@ class EcarxKeys(context: Context) {
 
     companion object {
         /**
-         * GUESS: key codes other apps use on this head unit. gbinder intercepts 200082 and
-         * 200164; the button app special-cases 200003. Which wheel button each one is
-         * hasn't been mapped yet.
+         * GUESS (from APK, untested on Islam's car): steering-wheel codes and names. Names come
+         * from the button app's own labels and ECARX's KeyCode table (bundled in gbinder).
+         * The button app intercepts exactly these on Cityray cars and treats 200003 like Home.
          */
-        val KNOWN_CODES = intArrayOf(200003, 200082, 200164)
+        val WHEEL_KEYS: Map<Int, String> = linkedMapOf(
+            200087 to "Next",
+            200088 to "Previous",
+            200085 to "Play/Pause",
+            200164 to "Mute",
+            200082 to "Mode / Menu",
+            200231 to "Voice / Phone",
+            200003 to "Home",
+            200004 to "Back",
+            200005 to "Call",
+            200006 to "End call",
+            200024 to "Volume up",
+            200025 to "Volume down",
+            200110 to "Mode (alt)",
+            200176 to "Settings",
+            200400 to "Extra button (200400)",
+            200600 to "Multi-function",
+            110007 to "Knob volume up",
+            110008 to "Knob volume down",
+            110009 to "Knob tune up",
+            110010 to "Knob tune down",
+        )
+
+        val KNOWN_CODES: IntArray = WHEEL_KEYS.keys.toIntArray()
+
+        fun name(code: Int): String = WHEEL_KEYS[code] ?: "unknown"
 
         const val INPUT_CLASS = "com.ecarx.xui.adaptapi.input.Input"
         const val KEY_CALLBACK_CLASS = "com.ecarx.xui.adaptapi.input.IKeyCallback"
