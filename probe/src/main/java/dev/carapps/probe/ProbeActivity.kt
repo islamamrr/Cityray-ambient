@@ -137,7 +137,9 @@ class ProbeActivity : Activity() {
             releaseKeys("stopped")
             return
         }
-        val codes = (IntArray(KEY_RANGE_SIZE) { KEY_RANGE_START + it } + EcarxKeys.KNOWN_CODES).distinct().toIntArray()
+        // 0.5: ask for only the known codes, like the button app does. 0.4 asked for 300 codes and
+        // the keys still did their normal jobs; this checks whether a short list lets us consume them.
+        val codes = (EcarxKeys.KNOWN_CODES + IntArray(51) { 300000 + it }).distinct().toIntArray()
         val granted = keys.intercept(codes, object : EcarxKeys.Listener {
             override fun onKeyPressed(code: Int) = addKey("DOWN $code  ${EcarxKeys.name(code)}")
             override fun onKeyReleased(code: Int) = addKey("UP   $code  ${EcarxKeys.name(code)}")

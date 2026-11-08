@@ -52,6 +52,7 @@ class EcarxKeys(context: Context) {
                 when (method) {
                     "onKeyPressed" -> { main.post { listener.onKeyPressed(code) }; true }
                     "onKeyReleased" -> { main.post { listener.onKeyReleased(code) }; true }
+                    "onKeyCanceled" -> true
                     else -> null
                 }
             }
@@ -83,7 +84,9 @@ class EcarxKeys(context: Context) {
 
     companion object {
         /**
-         * GUESS (from APK, untested on Islam's car): steering-wheel codes and names. Names come
+         * Steering-wheel codes and names. CONFIRMED on 2026-11-08: 200024/200025 volume,
+         * 200164 mute, 200231 voice/phone, 200087/200088 next/previous, 200082 menu,
+         * 200400 mode. The rest are GUESS (from APK; not sent by Islam's wheel so far). Names come
          * from the button app's own labels and ECARX's KeyCode table (bundled in gbinder).
          * The button app intercepts exactly these on Cityray cars and treats 200003 like Home.
          */
@@ -92,7 +95,7 @@ class EcarxKeys(context: Context) {
             200088 to "Previous",
             200085 to "Play/Pause",
             200164 to "Mute",
-            200082 to "Mode / Menu",
+            200082 to "Menu",
             200231 to "Voice / Phone",
             200003 to "Home",
             200004 to "Back",
@@ -102,7 +105,7 @@ class EcarxKeys(context: Context) {
             200025 to "Volume down",
             200110 to "Mode (alt)",
             200176 to "Settings",
-            200400 to "Extra button (200400)",
+            200400 to "Mode",
             200600 to "Multi-function",
             110007 to "Knob volume up",
             110008 to "Knob volume down",

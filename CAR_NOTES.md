@@ -9,7 +9,7 @@ These notes cover what we know about reading car data on the 2026 Geely Cityray 
 | **GUESS** | Found in other apps or in ECARX interface names, not tested yet |
 | **NOT_AVAILABLE** | Tested in the car and it doesn't work |
 
-Last in-car test: 2026-10-31, parked, engine probably off.
+Last in-car test: 2026-11-08 (gear, keys, ignition). Earlier: 2026-10-31, parked, engine probably off.
 
 ## How apps reach the car
 
@@ -22,14 +22,14 @@ The head unit's system image ships the ECARX "AdaptAPI" (`com.ecarx.xui.adaptapi
 
 | Sensor | Id | Label | What we saw |
 | --- | --- | --- | --- |
-| Gear | 0x200200 | CONFIRMED | Event. +0x40 P, +0x10 R, +0x20 N, +0x30 D |
-| Ignition | 0x200100 | OBSERVED | Event. Read +7 the whole time; other states not mapped |
+| Gear | 0x200200 | CONFIRMED | Event. +0x30 P, +0x40 R, +0x10 N, +0x20 D (re-checked 2026-11-08; the 10-31 map was off by one) |
+| Ignition | 0x200100 | OBSERVED | Event. Seen +3, +5, +7. +7 = on (button app and gbinder agree); +3/+5 not mapped |
 | Speed | 0x100100 | OBSERVED | Active, read 0 while parked |
 | Speed (cluster) | 0x101A00 | OBSERVED | Active, read 0 while parked |
-| RPM | 0x100900 | OBSERVED | Packed integer (see below), read 1 |
+| RPM | 0x100900 | OBSERVED | Packed integer (see below), read 1. Didn't change on 2026-11-08 |
 | Fuel level | 0x100600 | OBSERVED | Packed integer, about 25020 and falling. GUESS: millilitres |
 | Odometer | 0x100700 | OBSERVED | Active but read 0, so recheck it |
-| Steering angle | 0x101000 | OBSERVED | Active, read 0 |
+| Steering angle | 0x101000 | OBSERVED | Active, read 0. Didn't change when turning on 2026-11-08 |
 | Steering angle speed | 0x101100 | OBSERVED | Active, read 0 |
 | Engine state | 0x201600 | NOT_AVAILABLE | notavailable, and listener refused |
 | Acceleration | 0x101700 | NOT_AVAILABLE | notavailable, and listener refused |
@@ -52,7 +52,9 @@ These come from the ECARX interface: fuel types 0x100100, vehicle types 0x100200
 
 - Interception takes the key away from the head unit until `release()` is called. **OBSERVED**: the input API was found.
 - Callback: `IKeyCallback.onKeyPressed(int code)` / `onKeyReleased(int code)` (and `onKeyCanceled`). Returning true consumes the key.
-- **GUESS (from APK):** wheel codes, named by the button app and ECARX's `KeyCode` table: 200087 next, 200088 previous, 200085 play/pause, 200164 mute, 200082 mode/menu, 200231 voice/phone, 200003 home, 200024/200025 volume up/down, 200400 unnamed extra button. Knobs: 110007–110010. Car Probe 0.4 shows these names live; confirm each one in the car.
+- **CONFIRMED 2026-11-08:** 200024 / 200025 volume up/down, 200164 mute, 200231 voice/phone, 200087 / 200088 next/previous, 200082 menu, 200400 mode. No other wheel button sent a code to the head unit.
+- **Open:** with 300 codes requested (Probe 0.4) the keys still did their normal jobs. The button app requests only ~13 codes; Probe 0.5 tests whether a short list lets us consume them.
+- Other named codes (ECARX `KeyCode` table, via gbinder): 200003 home, 200004 back, 200085 play/pause, knobs 110007–110010.
 
 ## GlyCar (`GlyCar`), GUESS
 

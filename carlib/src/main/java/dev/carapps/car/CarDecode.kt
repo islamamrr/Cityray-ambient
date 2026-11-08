@@ -10,21 +10,22 @@ object CarDecode {
     enum class Gear { P, R, N, D, OTHER, UNKNOWN }
 
     /**
-     * P (+0x40) CONFIRMED in the car on 2026-10-31. R, N and D were assigned from the
-     * order of shifting and are not certain: on 2026-11-01 reverse did not register as
-     * leaving Park. So any value other than P comes back as at least [Gear.OTHER].
+     * CONFIRMED in the car on 2026-11-08, gear by gear: +0x30 P, +0x40 R, +0x10 N, +0x20 D.
+     * The button app agrees: it treats 0x200240 as "reverse on". (The 2026-10-31 map was
+     * shifted by one, which is why reverse looked like Park on 2026-11-01.)
      */
     fun gear(event: Int): Gear = when (event - CarSensor.GEAR.id) {
-        0x40 -> Gear.P
-        0x10 -> Gear.R
-        0x20 -> Gear.N
-        0x30 -> Gear.D
+        0x30 -> Gear.P
+        0x40 -> Gear.R
+        0x10 -> Gear.N
+        0x20 -> Gear.D
         else -> Gear.OTHER
     }
 
     /**
-     * OBSERVED. Ignition events are 0x200100 plus a state number. We have only seen +7
-     * (car on, parked, engine probably off). Other states are not mapped yet.
+     * OBSERVED. Ignition events are 0x200100 plus a state number. Seen in the car: +3, +5
+     * and +7. Both the button app and gbinder treat +7 (0x200107) as "ignition on".
+     * Which of +3 / +5 is off or accessory is not mapped yet.
      */
     fun ignitionStep(event: Int): Int = event - CarSensor.IGNITION.id
 
