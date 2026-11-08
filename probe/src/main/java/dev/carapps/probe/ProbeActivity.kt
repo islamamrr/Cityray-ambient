@@ -208,6 +208,10 @@ class ProbeActivity : Activity() {
                         f.label.take(30), EcarxCar.hex(f.id), Zone.label(z), v, car.functionStatus(f.id, z) ?: "-"))
                 }
             }
+            append("\nW4M group (steering, wheel speeds), status ${car.w4mStatus() ?: "-"}:\n")
+            val w = car.w4m()
+            if (w == null) append("  no value\n")
+            else append("  " + w.entries.joinToString("  ") { "${it.key.removePrefix("get")}=${it.value ?: "-"}" } + "\n")
             append("\nGlyCar API: ${if (gly.isAvailable) "found" else "NOT found"}")
             append("  |  ignition property: ${gly.intProperty(GlyCar.PROPERTY_IGNITION) ?: "-"}\n")
             append("Geely launcher app list: $appStoreCount apps\n")

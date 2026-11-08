@@ -112,6 +112,19 @@ class EcarxCar(context: Context) {
     fun latestEvent(id: Int): Int? = sensorCall { (Reflect.call(it, "getSensorEvent", id) as? Number)?.toInt() }
 
     /**
+     * GUESS: ECARX "W4M" sensor group (ISensorGroup 0x800500). Its value carries steering
+     * angle, the four wheel speeds, yaw rate, lateral/longitudinal acceleration and gear.
+     * A second route to steering angle, since the plain sensor 0x101000 never moved.
+     * Returns name -> value for every getter that answered, or null if the group is missing.
+     */
+    fun w4m(): Map<String, Any?>? = sensorCall { s ->
+        val v = Reflect.call(s, "getSensorGroupLatestValue", W4M_GROUP) ?: return@sensorCall null
+        W4M_GETTERS.associateWith { g -> runCatching { Reflect.call(v, g) }.getOrNull() }
+    }
+
+    fun w4mStatus(): String? = supportStatus(W4M_GROUP)
+
+    /**
      * Watches car functions (climate, seat heating, ...) for changes. GUESS: the ids come
      * from other apps. Call after [start]. Returns false if the API refused.
      */
@@ -236,6 +249,10 @@ class EcarxCar(context: Context) {
         const val FUNCTION_WATCHER_CLASS = "com.ecarx.xui.adaptapi.car.base.ICarFunction\$IFunctionValueWatcher"
 
         fun hex(id: Int) = "0x" + Integer.toHexString(id)
+
+        const val W4M_GROUP = 0x800500
+        val W4M_GETTERS = listOf("getSteerAngle", "getYawRate", "getLatAcc", "getLonAcc", "getGearState",
+            "getVFLSpeed", "getVFRSpeed", "getVRLSpeed", "getVRRSpeed")
 
         internal fun describe(t: Throwable): String {
             val root = (t as? java.lang.reflect.InvocationTargetException)?.targetException ?: t
