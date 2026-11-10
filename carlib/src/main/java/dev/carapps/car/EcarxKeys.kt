@@ -117,6 +117,10 @@ class EcarxKeys(context: Context) {
 
         fun name(code: Int): String = WHEEL_KEYS[code] ?: "unknown"
 
+        /** Our label if we have one, else ECARX's KEYCODE_* name from the catalog. */
+        fun name(code: Int, catalog: EcarxCatalog): String =
+            WHEEL_KEYS[code] ?: catalog.keyName(code)?.removePrefix("KEYCODE_") ?: "unknown"
+
         const val INPUT_CLASS = "com.ecarx.xui.adaptapi.input.Input"
         const val KEY_CALLBACK_CLASS = "com.ecarx.xui.adaptapi.input.IKeyCallback"
     }

@@ -3,6 +3,9 @@ package dev.carapps.car
 /**
  * Sensor ids used by the head unit's ECARX car API (com.ecarx.xui.adaptapi.car.sensor.ISensor).
  *
+ * This is the short, curated list: ids we have tested or that apps rely on. For every id
+ * ECARX names (about 150 sensors), see [EcarxCatalog].
+ *
  * The ids come from the interface constants that apps on this head unit compile against.
  * [confidence] and [note] record what Car Probe showed in the car on 2026-10-31
  * (parked, engine probably off). [CarDecode] turns raw values into meaning.
@@ -15,7 +18,7 @@ enum class CarSensor(
     val note: String,
 ) {
     IGNITION(0x200100, "Ignition state", confidence = Confidence.OBSERVED,
-        note = "Event sensor. Seen +3, +5, +7. +7 is on (button app and gbinder agree); +3/+5 not mapped."),
+        note = "Event sensor. Seen +3, +5, +7 = OFF, ON, DRIVING (ECARX names). See CarDecode.ignition."),
     GEAR(0x200200, "Gear", confidence = Confidence.CONFIRMED,
         note = "Event sensor. +0x30 P, +0x40 R, +0x10 N, +0x20 D (confirmed 2026-11-08)."),
     ENGINE_STATE(0x201600, "Engine state", confidence = Confidence.NOT_AVAILABLE,
@@ -38,8 +41,8 @@ enum class CarSensor(
         note = "Active, read 0."),
 
     // GUESS: ids from ECARX's ISensor table and the button app, not tried in the car yet.
-    FUEL_LEVEL_ALT(0x404500, "Fuel level (button app)", confidence = Confidence.GUESS,
-        note = "The button app reads fuel from this id instead of 0x100600."),
+    FUEL_LEVEL_ALT(0x404500, "Fuel level %", "%", Confidence.GUESS,
+        note = "IVirtualSensor FUEL_PERCENTAGE. The button app reads fuel here. See CarDecode.fuelLitresFromPercent."),
     INDOOR_TEMP(0x100C00, "Indoor temperature", "C", Confidence.GUESS, note = "Used by the button app."),
     OUTDOOR_TEMP(0x100B00, "Outdoor temperature", "C", Confidence.GUESS, note = "Used by the button app."),
     HANDBRAKE(0x200300, "Handbrake", confidence = Confidence.GUESS, note = "Event sensor."),
@@ -48,7 +51,17 @@ enum class CarSensor(
     ACCELERATOR(0x101400, "Accelerator pedal", "%", Confidence.GUESS, note = "ECARX ACCELERATOR_DEPTH."),
     BRAKE(0x101300, "Brake pedal", "%", Confidence.GUESS, note = "ECARX BRAKE_DEPTH."),
     DAY_NIGHT(0x201000, "Day / night", confidence = Confidence.GUESS, note = "Event sensor."),
-    START_STOP(0x201700, "Engine start/stop", confidence = Confidence.GUESS, note = "ECARX ENGINE_START_STOP_STATE.");
+    START_STOP(0x201700, "Engine start/stop", confidence = Confidence.GUESS, note = "ECARX ENGINE_START_STOP_STATE."),
+    PASSENGER_SEAT_OCCUPIED(0x203400, "Passenger seat occupied", confidence = Confidence.GUESS,
+        note = "ECARX SEAT_OCCUPATION_STATUS_PASSENGER. The button app watches it."),
+    DRIVER_SEATBELT(0x201200, "Driver seatbelt", confidence = Confidence.GUESS, note = "ECARX SAFE_BELT_DRIVER."),
+    AMBIENT_LIGHT(0x200F00, "Light sensor", confidence = Confidence.GUESS, note = "ECARX SENSOR_TYPE_LIGHT."),
+    AVG_FUEL_CONSUMPTION(0x400100, "Average fuel consumption", "L/100km", Confidence.GUESS,
+        note = "IVirtualSensor TYPE_AVG_FUEL_CONSUMPTION."),
+    TIRE_PRESSURE_FL(0x500100, "Tire pressure front left", "kPa", Confidence.GUESS, note = "ITireSensor. Unit is a guess."),
+    TIRE_PRESSURE_FR(0x500200, "Tire pressure front right", "kPa", Confidence.GUESS, note = "ITireSensor. Unit is a guess."),
+    TIRE_PRESSURE_RL(0x500300, "Tire pressure rear left", "kPa", Confidence.GUESS, note = "ITireSensor. Unit is a guess."),
+    TIRE_PRESSURE_RR(0x500400, "Tire pressure rear right", "kPa", Confidence.GUESS, note = "ITireSensor. Unit is a guess.");
 
     companion object {
         fun byId(id: Int): CarSensor? = entries.firstOrNull { it.id == id }

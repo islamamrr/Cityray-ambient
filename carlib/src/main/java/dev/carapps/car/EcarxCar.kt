@@ -112,14 +112,27 @@ class EcarxCar(context: Context) {
     fun latestEvent(id: Int): Int? = sensorCall { (Reflect.call(it, "getSensorEvent", id) as? Number)?.toInt() }
 
     /**
-     * GUESS: ECARX "W4M" sensor group (ISensorGroup 0x800500). Its value carries steering
-     * angle, the four wheel speeds, yaw rate, lateral/longitudinal acceleration and gear.
-     * A second route to steering angle, since the plain sensor 0x101000 never moved.
+     * GUESS: ECARX "W4M" sensor group (ISensorGroup.SENSOR_GROUP_TYPE_W4M = 0x800400). Its
+     * value carries steering angle, the four wheel speeds, yaw rate, lateral/longitudinal
+     * acceleration and gear. A second route to steering angle, since sensor 0x101000 never moved.
+     * (Probe 0.6 asked for 0x800500 by mistake, which is the brake-pressure group.)
      * Returns name -> value for every getter that answered, or null if the group is missing.
      */
     fun w4m(): Map<String, Any?>? = sensorCall { s ->
         val v = Reflect.call(s, "getSensorGroupLatestValue", W4M_GROUP) ?: return@sensorCall null
         W4M_GETTERS.associateWith { g -> runCatching { Reflect.call(v, g) }.getOrNull() }
+    }
+
+    /**
+     * Latest value of any sensor group (see [SensorGroup]), as getter name -> value. Calls
+     * every no-argument getter the value object has, so it works for all six group types.
+     */
+    fun sensorGroup(id: Int): Map<String, Any?>? = sensorCall { s ->
+        val v = Reflect.call(s, "getSensorGroupLatestValue", id) ?: return@sensorCall null
+        v.javaClass.methods
+            .filter { it.name.startsWith("get") && it.parameterTypes.isEmpty() && it.name != "getClass" }
+            .sortedBy { it.name }
+            .associate { m -> m.name.removePrefix("get") to runCatching { m.isAccessible = true; m.invoke(v) }.getOrNull() }
     }
 
     fun w4mStatus(): String? = supportStatus(W4M_GROUP)
@@ -180,6 +193,81 @@ class EcarxCar(context: Context) {
 
     fun carInfoStatus(item: CarInfo): String? = managerCall(infoManager()) {
         Reflect.call(it, "isCarInfoSupported", item.id)?.toString()
+    }
+
+    /** One answer from [scan]. [status] is "active", "notactive", "notavailable", "error" or "-". */
+    data class ScanRow(
+        val kind: EcarxCatalog.Kind,
+        val id: Int,
+        val name: String,
+        val status: String,
+        val value: String?,
+    ) {
+        val isActive: Boolean get() = status == "active"
+    }
+
+    /**
+     * Asks the car about every id in [catalog]: is it supported, and what is its value now.
+     * Read-only, but it makes about 1,000 binder calls, so call it off the main thread.
+     * Call after [start]. [onProgress] gets (done, total).
+     */
+    fun scan(
+        catalog: EcarxCatalog,
+        kinds: Set<EcarxCatalog.Kind> = setOf(EcarxCatalog.Kind.SENSOR, EcarxCatalog.Kind.FUNCTION, EcarxCatalog.Kind.INFO),
+        onProgress: ((Int, Int) -> Unit)? = null,
+    ): List<ScanRow> {
+        val todo = catalog.entries.filter { it.kind in kinds }
+        val rows = ArrayList<ScanRow>(todo.size)
+        todo.forEachIndexed { i, e ->
+            rows.add(scanOne(e))
+            if (i % 25 == 0) onProgress?.invoke(i, todo.size)
+        }
+        onProgress?.invoke(todo.size, todo.size)
+        return rows
+    }
+
+    private fun scanOne(e: EcarxCatalog.Entry): ScanRow {
+        var status = "-"
+        var value: String? = null
+        when (e.kind) {
+            EcarxCatalog.Kind.SENSOR -> {
+                status = supportStatus(e.id) ?: "-"
+                if (status == "active") {
+                    val ev = latestEvent(e.id)
+                    val v = latestValue(e.id)
+                    value = buildString {
+                        if (ev != null && ev != 0 && ev != -1) append("event=").append(e.valueName(ev) ?: hex(ev)).append(' ')
+                        if (v != null) append("value=").append(CarDecode.packedInt(v)?.let { "int $it" } ?: v.toString())
+                    }.trim().ifEmpty { null }
+                }
+            }
+            EcarxCatalog.Kind.FUNCTION -> {
+                status = functionStatus(e.id) ?: "-"
+                if (status == "active") {
+                    val v = functionValue(e.id)
+                    value = v?.let { e.valueName(it) ?: if (it > 0xFFFF) hex(it) else it.toString() }
+                    if (v == null) value = functionFloat(e.id)?.toString()
+                }
+            }
+            EcarxCatalog.Kind.INFO -> {
+                val m = infoManager()
+                status = managerCall(m) { Reflect.call(it, "isCarInfoSupported", e.id)?.toString() } ?: "-"
+                if (status == "active") value = managerCall(m) {
+                    when {
+                        e.name.startsWith("FLT_") -> Reflect.call(it, "getCarInfoFloat", e.id)?.toString()
+                        e.name.startsWith("STRING_") -> Reflect.call(it, "getCarInfoString", e.id)?.toString()
+                        e.name.startsWith("INTS_") -> (Reflect.call(it, "getCarInfoInts", e.id) as? IntArray)?.joinToString()
+                        e.name.startsWith("MAP_") -> null
+                        else -> (Reflect.call(it, "getCarInfoInt", e.id) as? Int)?.let { v -> e.valueName(v) ?: v.toString() }
+                    }
+                }
+            }
+            EcarxCatalog.Kind.GROUP -> status = supportStatus(e.id) ?: "-"
+            EcarxCatalog.Kind.CONFIG -> value = managerCall(infoManager()) {
+                (Reflect.call(it, "getCarInfoConfig", e.id) as? Int)?.let { v -> hex(v) }
+            }
+        }
+        return ScanRow(e.kind, e.id, e.name, status, value)
     }
 
     private fun functionManager(): Any? {
@@ -250,7 +338,7 @@ class EcarxCar(context: Context) {
 
         fun hex(id: Int) = "0x" + Integer.toHexString(id)
 
-        const val W4M_GROUP = 0x800500
+        const val W4M_GROUP = SensorGroup.W4M
         val W4M_GETTERS = listOf("getSteerAngle", "getYawRate", "getLatAcc", "getLonAcc", "getGearState",
             "getVFLSpeed", "getVFRSpeed", "getVRLSpeed", "getVRRSpeed")
 
@@ -259,4 +347,20 @@ class EcarxCar(context: Context) {
             return "${root.javaClass.simpleName}: ${root.message}"
         }
     }
+}
+
+/** ECARX sensor groups (ISensorGroup.SENSOR_GROUP_TYPE_*). GUESS: none tested in the car yet. */
+object SensorGroup {
+    const val GYRO = 0x800100
+    const val ACCELERATION = 0x800200
+    const val WHEEL_PULSES = 0x800300
+    /** Steering angle, four wheel speeds, yaw rate, lateral/longitudinal acceleration, gear. */
+    const val W4M = 0x800400
+    const val BRAKE_PRESSURE = 0x800500
+    const val SHAFT_TORQUE = 0x800600
+
+    val ALL = linkedMapOf(
+        GYRO to "Gyro", ACCELERATION to "Acceleration", WHEEL_PULSES to "Wheel pulses",
+        W4M to "W4M (steering, wheel speeds)", BRAKE_PRESSURE to "Brake pressure", SHAFT_TORQUE to "Shaft torque",
+    )
 }

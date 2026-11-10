@@ -1,6 +1,7 @@
 package dev.carapps.probe
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
@@ -16,7 +17,12 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import dev.carapps.car.AndroidCar
+import dev.carapps.car.AutolinkCarProxy
 import dev.carapps.car.CarDecode
+import dev.carapps.car.EcarxCatalog
+import dev.carapps.car.SensorGroup
+import dev.carapps.car.VendorSignal
 import dev.carapps.car.CarFunction
 import dev.carapps.car.CarInfo
 import dev.carapps.car.GeelyAppStore
@@ -25,6 +31,7 @@ import dev.carapps.car.Zone
 import dev.carapps.car.CarSensor
 import dev.carapps.car.EcarxCar
 import dev.carapps.car.EcarxKeys
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,6 +46,13 @@ class ProbeActivity : Activity() {
     private lateinit var car: EcarxCar
     private lateinit var keys: EcarxKeys
     private lateinit var gly: GlyCar
+    private lateinit var androidCar: AndroidCar
+    private lateinit var carProxy: AutolinkCarProxy
+    private lateinit var catalog: EcarxCatalog
+    private lateinit var scanView: TextView
+    private lateinit var scanButton: Button
+    @Volatile private var scanning = false
+    private var lastScanText: String? = null
     private lateinit var extraView: TextView
     private var tick = 0
     private var appStoreCount: String = "-"
@@ -73,6 +87,9 @@ class ProbeActivity : Activity() {
         car = EcarxCar(this)
         keys = EcarxKeys(this)
         gly = GlyCar(this)
+        androidCar = AndroidCar(this)
+        carProxy = AutolinkCarProxy(this)
+        catalog = EcarxCatalog.get(this)
         setContentView(buildUi())
     }
 
@@ -88,6 +105,8 @@ class ProbeActivity : Activity() {
         releaseKeys("app paused")
         car.stop()
         gly.disconnect()
+        androidCar.disconnect()
+        carProxy.disconnect()
     }
 
     private fun connect() {
@@ -115,11 +134,16 @@ class ProbeActivity : Activity() {
 
         if (gly.connect()) {
             addLog("GlyCar connected; ignition property = ${gly.intProperty(GlyCar.PROPERTY_IGNITION)}")
-            val listening = gly.listen(intArrayOf(GlyCar.PROPERTY_IGNITION)) { args -> addLog("GLYCAR event ${args.joinToString()}") }
+            val listening = gly.listen(intArrayOf(GlyCar.PROPERTY_IGNITION)) { args ->
+                val v = (args.getOrNull(2) as? Number)?.toInt()
+                addLog("GLYCAR event ${args.joinToString()}" + (v?.let { "  -> ${CarDecode.ignition(it)}" } ?: ""))
+            }
             if (!listening) addLog("GlyCar listen: ${gly.lastError}")
         } else {
             addLog("GlyCar: ${gly.lastError}")
         }
+        if (!androidCar.connect()) addLog("Android car API: ${androidCar.lastError}")
+        if (!carProxy.connect()) addLog("Autolink car proxy: ${carProxy.lastError}")
         appStoreCount = GeelyAppStore.listPackages(this)?.size?.toString() ?: "refused"
     }
 
@@ -141,8 +165,8 @@ class ProbeActivity : Activity() {
         // the keys still did their normal jobs; this checks whether a short list lets us consume them.
         val codes = (EcarxKeys.KNOWN_CODES + IntArray(51) { 300000 + it }).distinct().toIntArray()
         val granted = keys.intercept(codes, object : EcarxKeys.Listener {
-            override fun onKeyPressed(code: Int) = addKey("DOWN $code  ${EcarxKeys.name(code)}")
-            override fun onKeyReleased(code: Int) = addKey("UP   $code  ${EcarxKeys.name(code)}")
+            override fun onKeyPressed(code: Int) = addKey("DOWN $code  ${EcarxKeys.name(code, catalog)}")
+            override fun onKeyReleased(code: Int) = addKey("UP   $code  ${EcarxKeys.name(code, catalog)}")
         })
         if (!keys.isHolding) {
             addLog("buttons: failed: ${keys.lastError}")
@@ -208,14 +232,92 @@ class ProbeActivity : Activity() {
                         f.label.take(30), EcarxCar.hex(f.id), Zone.label(z), v, car.functionStatus(f.id, z) ?: "-"))
                 }
             }
-            append("\nW4M group (steering, wheel speeds), status ${car.w4mStatus() ?: "-"}:\n")
-            val w = car.w4m()
-            if (w == null) append("  no value\n")
-            else append("  " + w.entries.joinToString("  ") { "${it.key.removePrefix("get")}=${it.value ?: "-"}" } + "\n")
+            append("\nSENSOR GROUPS  [GUESS; turn the wheel with the engine on]\n")
+            for ((gid, gname) in SensorGroup.ALL) {
+                val g = car.sensorGroup(gid)
+                append("  $gname ${EcarxCar.hex(gid)}, ${car.supportStatus(gid) ?: "-"}: ")
+                append(if (g == null) "no value\n" else g.entries.joinToString("  ") { "${it.key}=${it.value ?: "-"}" } + "\n")
+            }
+            append("\nTURN SIGNALS  [all GUESS; switch the indicator on and off]\n")
+            append("  Android TURN_SIGNAL_STATE: ${androidCar.int(AndroidCar.TURN_SIGNAL_STATE) ?: "-"}")
+            append("  hazard: ${androidCar.int(AndroidCar.HAZARD_LIGHTS_STATE) ?: "-"}\n")
+            append("  car proxy: ${if (carProxy.isConnected) "connected" else "not connected"}\n")
+            for (id in VendorSignal.TURN_CANDIDATES) {
+                val ev = car.latestEvent(id)?.toString() ?: "-"
+                val fn = car.functionValue(id)?.toString() ?: "-"
+                val cp = carProxy.intProperty(id)?.toString() ?: "-"
+                append(String.format(Locale.US, "  %-26s %-10s sensor=%-6s func=%-6s proxy=%s\n",
+                    VendorSignal.name(id), EcarxCar.hex(id), ev, fn, cp))
+            }
             append("\nGlyCar API: ${if (gly.isAvailable) "found" else "NOT found"}")
             append("  |  ignition property: ${gly.intProperty(GlyCar.PROPERTY_IGNITION) ?: "-"}\n")
             append("Geely launcher app list: $appStoreCount apps\n")
             append("Known wheel keys (from APK): ${EcarxKeys.KNOWN_CODES.size} codes")
+        }
+    }
+
+    /** Asks the car about every catalog id on a background thread, then shows the active ones. */
+    private fun scanAll() {
+        if (scanning) return
+        if (!car.isStarted) {
+            scanView.text = "Scan needs the car API. Tap Reconnect first. ${car.lastError ?: ""}"
+            return
+        }
+        scanning = true
+        scanButton.isEnabled = false
+        Thread {
+            val started = SystemClock.elapsedRealtime()
+            val rows = try {
+                car.scan(catalog) { done, total -> main.post { scanView.text = "Scanning... $done / $total" } }
+            } catch (t: Throwable) {
+                main.post { scanView.text = "Scan failed: $t"; scanning = false; scanButton.isEnabled = true }
+                return@Thread
+            }
+            val secs = (SystemClock.elapsedRealtime() - started) / 1000
+            val report = buildScanReport(rows, secs)
+            val file = runCatching {
+                val dir = getExternalFilesDir(null) ?: filesDir
+                File(dir, "scan-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt")
+                    .also { it.writeText(report) }
+            }.getOrNull()
+            main.post {
+                lastScanText = report
+                scanView.text = report + (file?.let { "\nSaved to ${it.absolutePath}" } ?: "")
+                scanning = false
+                scanButton.isEnabled = true
+                addLog("scan done: ${rows.count { it.isActive }} active of ${rows.size}")
+            }
+        }.start()
+    }
+
+    private fun buildScanReport(rows: List<EcarxCar.ScanRow>, secs: Long): String = buildString {
+        append("SCAN ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ")
+        append("${Build.DISPLAY}  (${secs}s)\n")
+        val byStatus = rows.groupingBy { it.kind to it.status }.eachCount()
+        for (kind in EcarxCatalog.Kind.entries) {
+            val parts = byStatus.filterKeys { it.first == kind }.entries.joinToString { "${it.key.second} ${it.value}" }
+            if (parts.isNotEmpty()) append("${kind.name.lowercase()}: $parts\n")
+        }
+        for (kind in EcarxCatalog.Kind.entries) {
+            val active = rows.filter { it.kind == kind && (it.isActive || (kind == EcarxCatalog.Kind.CONFIG && it.value != null)) }
+            if (active.isEmpty()) continue
+            append("\n${kind.name} (${active.size})\n")
+            for (r in active) append(String.format(Locale.US, "%-10s %-44s %s\n", EcarxCar.hex(r.id), r.name.take(44), r.value ?: ""))
+        }
+        val notActive = rows.filter { it.status == "notactive" }
+        if (notActive.isNotEmpty()) {
+            append("\nNOT ACTIVE right now (${notActive.size})\n")
+            for (r in notActive) append("${EcarxCar.hex(r.id)} ${r.name}\n")
+        }
+    }
+
+    private fun shareScan() {
+        val report = lastScanText ?: run { scanView.text = "Run a scan first."; return }
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report)
+        try {
+            startActivity(Intent.createChooser(send, "Share scan"))
+        } catch (t: Throwable) {
+            scanView.text = "No app here can share text. The scan is saved in the file shown below.\n\n$report"
         }
     }
 
@@ -240,8 +342,8 @@ class ProbeActivity : Activity() {
         if (e == -1) return "-1"
         return when (id) {
             CarSensor.GEAR.id -> "+0x${Integer.toHexString(e - id)} ${CarDecode.gear(e)}"
-            CarSensor.IGNITION.id -> "+${CarDecode.ignitionStep(e)}"
-            else -> e.toString()
+            CarSensor.IGNITION.id -> "+${CarDecode.ignitionStep(e)} ${CarDecode.ignition(e)}"
+            else -> catalog.valueName(EcarxCatalog.Kind.SENSOR, id, e) ?: e.toString()
         }
     }
 
@@ -273,6 +375,15 @@ class ProbeActivity : Activity() {
         row.addView(keysButton)
         row.addView(button("Clear log") { log.clear(); logView.text = "" })
         root.addView(row, spaced())
+
+        val scanRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START }
+        scanButton = button("Scan everything (${catalog.entries.size} ids)") { scanAll() }
+        scanRow.addView(scanButton)
+        scanRow.addView(button("Share scan") { shareScan() })
+        root.addView(scanRow, spaced())
+        scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
+            text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
+        }.also { root.addView(it, spaced()) }
 
         extraView = text(13f, Color.rgb(220, 200, 255), mono = true).also { root.addView(it, spaced()) }
 

@@ -78,6 +78,9 @@ class AndroidCar(context: Context) {
         const val CURRENT_GEAR = 0x11400401
         const val PERF_VEHICLE_SPEED = 0x11600207
         const val PERF_STEERING_ANGLE = 0x11600209
+        /** GUESS: the button app probes these two for indicators. See CarDecode.turnSignalAosp. */
+        const val TURN_SIGNAL_STATE = 0x11400408
+        const val HAZARD_LIGHTS_STATE = 0x11400E03
 
         /** AOSP VehicleGear: N 1, R 2, P 4, D 8 (manual gears are 16 and up). */
         fun gear(value: Int): CarDecode.Gear = when (value) {
