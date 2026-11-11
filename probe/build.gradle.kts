@@ -11,8 +11,8 @@ android {
         applicationId = "dev.carapps.probe"
         minSdk = 26
         targetSdk = 30
-        versionCode = 7
-        versionName = "0.7"
+        versionCode = 8
+        versionName = "0.8"
     }
 
     signingConfigs {

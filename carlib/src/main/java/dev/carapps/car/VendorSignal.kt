@@ -20,6 +20,16 @@ object VendorSignal {
     /** IBcm.BCM_FUNC_LIGHT_HAZARD_FLASHERS, a regular ECARX car function. */
     const val BCM_HAZARD = 0x21050F00
 
+    /**
+     * ILamp SETTING_FUNC_LAMP_LR_TRAFFIC_LIGHT, an ECARX car function. The button app reads
+     * 0x2B020101 as left and 0x2B020102 as right. More likely it is the headlight setting for
+     * left- or right-hand traffic: the 2026-11-10 scan read RIGHT while driving in Egypt,
+     * which drives on the right. Kept as a candidate until the indicator test rules it out.
+     */
+    const val LAMP_LR_TRAFFIC_LIGHT = 0x2B020100
+    const val LAMP_LR_LEFT = 0x2B020101
+    const val LAMP_LR_RIGHT = 0x2B020102
+
     /** Autolink signal-state ids the button app subscribes to while hunting for indicators. */
     const val AUTOLINK_SIGNAL_REQUEST_STATE = 0x2140165B
     const val AUTOLINK_SIGNAL_STATE = 0x21401666
@@ -30,12 +40,13 @@ object VendorSignal {
     const val CARPROXY_FLASH = 0x21407944
 
     val TURN_CANDIDATES = intArrayOf(
-        BCM_TURN_LEFT, BCM_TURN_RIGHT, BCM_HAZARD,
+        LAMP_LR_TRAFFIC_LIGHT, BCM_TURN_LEFT, BCM_TURN_RIGHT, BCM_HAZARD,
         AUTOLINK_SIGNAL_REQUEST_STATE, AUTOLINK_SIGNAL_STATE, AUTOLINK_SIGNAL_DISPLAY_STATE,
         CARPROXY_SIGNAL_STATE, CARPROXY_TURN_LEFT, CARPROXY_TURN_RIGHT, CARPROXY_FLASH,
     )
 
     fun name(id: Int): String? = when (id) {
+        LAMP_LR_TRAFFIC_LIGHT -> "Lamp L/R traffic light"
         BCM_TURN_LEFT -> "BCM turn left"
         BCM_TURN_RIGHT -> "BCM turn right"
         BCM_HAZARD -> "BCM hazard"

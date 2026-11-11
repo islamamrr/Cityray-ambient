@@ -55,11 +55,14 @@ object CarDecode {
     /** A sensor value as a number: the packed integer if there is one, else the float. */
     fun number(value: Float): Float = packedInt(value)?.toFloat() ?: value
 
-    /** GUESS. Fuel level read about 25020; we assume millilitres, so about 25.0 litres. */
+    /**
+     * OBSERVED. Sensor 0x100600 sends millilitres as a packed integer: 16061 when 0x404500
+     * read 28%, and the button app's formula gives 17.4 L for 28%. Close enough to trust the unit.
+     */
     fun fuelLitres(value: Float): Float = number(value) / 1000f
 
     /**
-     * GUESS. Sensor 0x404500 (IVirtualSensor FUEL_PERCENTAGE) is the tank in percent. The
+     * OBSERVED that 0x404500 (IVirtualSensor FUEL_PERCENTAGE) is the tank in percent (read 28.0). The
      * button app turns it into litres with this Cityray calibration and caps it at the 51 L
      * tank: litres = 4.4 + percent * 0.466. (Preface: 4 + p * 0.45, cap 49; Atlas: 4 + p * 0.5, cap 54.)
      */
@@ -88,6 +91,12 @@ object CarDecode {
         value == null || value < 0 || value == 255 -> null
         else -> value != 0
     }
+
+    /**
+     * GUESS. Tire temperatures (0x500500..0x500800) read 68-71 at 17.5 C outside, which looks
+     * like the common CAN encoding of raw - 50. Confirm against the cluster before showing it.
+     */
+    fun tireTempC(value: Float): Float = value - 50f
 
     /** OBSERVED that RPM is packed. Read 1 with the engine probably off. Recheck with it running. */
     fun rpm(value: Float): Float = number(value)

@@ -52,6 +52,9 @@ class ProbeActivity : Activity() {
     private lateinit var scanView: TextView
     private lateinit var scanButton: Button
     @Volatile private var scanning = false
+    private var hunting = false
+    private lateinit var huntButton: Button
+    private val huntSeen = LinkedHashMap<String, MutableList<String>>()
     private var lastScanText: String? = null
     private lateinit var extraView: TextView
     private var tick = 0
@@ -102,6 +105,8 @@ class ProbeActivity : Activity() {
     override fun onPause() {
         super.onPause()
         main.removeCallbacks(refresh)
+        main.removeCallbacks(endHunt)
+        if (hunting) { hunting = false; huntButton.isEnabled = true }
         releaseKeys("app paused")
         car.stop()
         gly.disconnect()
@@ -244,7 +249,7 @@ class ProbeActivity : Activity() {
             append("  car proxy: ${if (carProxy.isConnected) "connected" else "not connected"}\n")
             for (id in VendorSignal.TURN_CANDIDATES) {
                 val ev = car.latestEvent(id)?.toString() ?: "-"
-                val fn = car.functionValue(id)?.toString() ?: "-"
+                val fn = car.functionValue(id)?.let { catalog.valueName(EcarxCatalog.Kind.FUNCTION, id, it) ?: it.toString() } ?: "-"
                 val cp = carProxy.intProperty(id)?.toString() ?: "-"
                 append(String.format(Locale.US, "  %-26s %-10s sensor=%-6s func=%-6s proxy=%s\n",
                     VendorSignal.name(id), EcarxCar.hex(id), ev, fn, cp))
@@ -288,6 +293,63 @@ class ProbeActivity : Activity() {
                 addLog("scan done: ${rows.count { it.isActive }} active of ${rows.size}")
             }
         }.start()
+    }
+
+    /**
+     * Listens to every catalog sensor and car function for [HUNT_SECONDS] and lists the ones
+     * whose value changed. Do one thing during it (flick the indicator, turn the wheel) to
+     * find the id that follows it. Read-only.
+     */
+    private fun startHunt() {
+        if (hunting) return
+        hunting = true
+        huntSeen.clear()
+        main.removeCallbacks(refresh)
+        car.stop()
+        val record = { key: String, v: String ->
+            val list = huntSeen.getOrPut(key) { ArrayList() }
+            if (list.lastOrNull() != v && list.size < 12) list.add(v)
+        }
+        val listener = object : EcarxCar.Listener {
+            override fun onValueChanged(sensorId: Int, value: Float) =
+                record("S ${EcarxCar.hex(sensorId)} ${catalog.sensor(sensorId)?.name ?: ""}", showValue(value))
+            override fun onEventChanged(sensorId: Int, event: Int) =
+                record("S ${EcarxCar.hex(sensorId)} ${catalog.sensor(sensorId)?.name ?: ""}",
+                    catalog.valueName(EcarxCatalog.Kind.SENSOR, sensorId, event) ?: EcarxCar.hex(event))
+            override fun onFunctionChanged(functionId: Int, zone: Int, value: Float) {
+                val v = value.toInt()
+                record("F ${EcarxCar.hex(functionId)} ${catalog.function(functionId)?.name ?: ""} ${Zone.label(zone)}".trim(),
+                    catalog.valueName(EcarxCatalog.Kind.FUNCTION, functionId, v) ?: fmt(value))
+            }
+        }
+        val sensorIds = catalog.sensors.map { it.id } + VendorSignal.TURN_CANDIDATES.toList()
+        val ok = car.start(listener, sensorIds.distinct())
+        val allFns = (catalog.functions.map { it.id } + VendorSignal.TURN_CANDIDATES.toList()).distinct()
+        // The car may refuse the whole list if it holds ids it doesn't support; retry with the active ones.
+        val fnOk = ok && (car.watchFunctions(listener, allFns) ||
+            car.watchFunctions(listener, allFns.filter { car.functionStatus(it) == "active" }))
+        scanView.text = if (ok) "Listening to everything for ${HUNT_SECONDS}s" +
+            (if (fnOk) "" else " (functions refused: ${car.lastError})") + ". Do ONE thing now, for example flick the indicator."
+        else "Could not start: ${car.lastError}"
+        huntButton.isEnabled = false
+        main.postDelayed(endHunt, HUNT_SECONDS * 1000L)
+    }
+
+    private val endHunt = Runnable { finishHunt() }
+
+    private fun finishHunt() {
+        car.stop()
+        val changed = huntSeen.filterValues { it.size > 1 }
+        val report = buildString {
+            append("CHANGED in ${HUNT_SECONDS}s: ${changed.size} of ${huntSeen.size} ids that reported\n")
+            for ((k, vals) in changed) append("$k\n    ${vals.joinToString(" -> ")}\n")
+        }
+        lastScanText = report
+        scanView.text = report
+        hunting = false
+        huntButton.isEnabled = true
+        connect()
+        main.post(refresh)
     }
 
     private fun buildScanReport(rows: List<EcarxCar.ScanRow>, secs: Long): String = buildString {
@@ -380,6 +442,8 @@ class ProbeActivity : Activity() {
         scanButton = button("Scan everything (${catalog.entries.size} ids)") { scanAll() }
         scanRow.addView(scanButton)
         scanRow.addView(button("Share scan") { shareScan() })
+        huntButton = button("Find what changes (${HUNT_SECONDS}s)") { startHunt() }
+        scanRow.addView(huntButton)
         root.addView(scanRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
@@ -443,5 +507,6 @@ class ProbeActivity : Activity() {
         const val KEY_RANGE_START = 200000
         const val KEY_RANGE_SIZE = 300
         const val KEY_LISTEN_SECONDS = 20
+        const val HUNT_SECONDS = 30
     }
 }

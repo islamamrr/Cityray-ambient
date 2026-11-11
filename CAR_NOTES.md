@@ -9,7 +9,7 @@ These notes cover what we know about reading car data on the 2026 Geely Cityray 
 | **GUESS** | Found in other apps or in ECARX interface names, not tested yet |
 | **NOT_AVAILABLE** | Tested in the car and it doesn't work |
 
-Last in-car test: 2026-11-08 (gear, keys, ignition). Earlier: 2026-10-31, parked, engine probably off. Last full APK pass: 2026-11-10 (button app 2.7.2 and 2.7.4, gbinder 4.3.1, gappstorage 1.0, BackFree 1.3.0).
+Last in-car test: 2026-11-10, full scan while driving (Probe 0.7). Before that, 2026-11-08 (gear, keys, ignition). Earlier: 2026-10-31, parked, engine probably off. Last full APK pass: 2026-11-10 (button app 2.7.2 and 2.7.4, gbinder 4.3.1, gappstorage 1.0, BackFree 1.3.0).
 
 ## Library map (`carlib`, package `dev.carapps.car`)
 
@@ -40,25 +40,40 @@ The head unit's system image ships the ECARX "AdaptAPI" (`com.ecarx.xui.adaptapi
 | Sensor | Id | Label | What we saw |
 | --- | --- | --- | --- |
 | Gear | 0x200200 | CONFIRMED | Event. +0x30 P, +0x40 R, +0x10 N, +0x20 D (re-checked 2026-11-08; the 10-31 map was off by one) |
-| Ignition | 0x200100 | OBSERVED | Event. Seen +3, +5, +7. ECARX names them OFF, ON and DRIVING (engine running); see below |
-| Speed | 0x100100 | OBSERVED | Active, read 0 while parked |
-| Speed (cluster) | 0x101A00 | OBSERVED | Active, read 0 while parked |
-| RPM | 0x100900 | OBSERVED | Packed integer (see below), read 1. Didn't change on 2026-11-08 |
-| Fuel level | 0x100600 | OBSERVED | Packed integer, about 25020 and falling. GUESS: millilitres |
-| Fuel level % | 0x404500 | GUESS | IVirtualSensor FUEL_PERCENTAGE. The button app reads fuel here, not at 0x100600 |
-| Odometer | 0x100700 | OBSERVED | Active but read 0, so recheck it |
-| Steering angle | 0x101000 | OBSERVED | Active, read 0. Didn't change when turning on 2026-11-08 |
-| Steering angle speed | 0x101100 | OBSERVED | Active, read 0 |
-| Engine state | 0x201600 | NOT_AVAILABLE | notavailable, and listener refused |
-| Acceleration | 0x101700 | NOT_AVAILABLE | notavailable, and listener refused |
+| Ignition | 0x200100 | OBSERVED | Event. Seen +3, +5, +7 (OFF, ON, DRIVING); +7 while driving. See below |
+| Speed | 0x100100 | OBSERVED | Plain float, km/h. 15.8 while driving |
+| Speed (cluster) | 0x101A00 | OBSERVED | Plain float, km/h. 16.7 at the same moment, a little higher like a speedometer |
+| Fuel level | 0x100600 | OBSERVED | Packed integer in millilitres: 16061 at 28 % |
+| Fuel level % | 0x404500 | OBSERVED | Plain float, 28.0 |
+| Range | 0x100800 | OBSERVED | 195.0 km (same as 0x101800, fuel range) |
+| Outdoor / indoor temp | 0x100B00 / 0x100C00 | OBSERVED | 17.5 / 18.7 °C |
+| Average fuel consumption | 0x400100 | OBSERVED | 84.0, probably 8.4 L/100 km |
+| Tire pressures | 0x500100–0x500400 | OBSERVED | 29.5–30.1 psi (the car's unit setting is PSI) |
+| Tire temperatures | 0x500500–0x500800 | OBSERVED | 68–71. GUESS: raw − 50, so about 20 °C |
+| Distance / time to service | 0x403000 / 0x403100 | OBSERVED | 3609 (km?) / 6744 (unit unknown) |
+| Day / night, light sensor | 0x201000 / 0x200F00 | OBSERVED | Night / 0x200F02 after dark |
+| Seatbelts, seat occupancy | 0x201200, 0x201300, 0x203300, 0x203400 | OBSERVED | Active; value meanings not checked |
+| RPM | 0x100900 | NOT_AVAILABLE | Says active, but stays at packed 1 while driving |
+| Odometer | 0x100700 | NOT_AVAILABLE | Says active, but stays 0 while driving |
+| Steering angle (+ speed) | 0x101000 / 0x101100 | NOT_AVAILABLE | Says active, but stays 0 while turning and driving. The sensor groups don't move either |
+| Engine state, acceleration | 0x201600 / 0x101700 | NOT_AVAILABLE | notavailable |
+| Handbrake, coolant, pedals, start/stop | 0x200300, 0x100F00, 0x101300/0x101400, 0x201700 | NOT_AVAILABLE | notavailable in the 2026-11-10 scan |
+
+## The 2026-11-10 full scan (Car Probe 0.7, driving in D at about 16 km/h, at night)
+
+- **Sensors:** 91 active, 60 not available. Besides the table above, active ones include the ABS/ESC/brake warning lamps, all 4 parking-sensor warnings, PM2.5 and air quality, CO2 level, car mode (NORMAL), alarm state, the fuel/oil/coolant warning flags, and the whole tire system (pressures, temperatures, warnings, sensor batteries).
+- **Car functions:** 347 active, 502 not available. Useful ones to read: drive mode `DM_FUNC_DRIVE_MODE_SELECT` 0x22010100 (read COMFORT), AC on/off 0x10010300, recirculation 0x10030100, door lock 0x21020200, dipped beam 0x21050100, fog lamps 0x21050400, units 0x250101xx (km/h, °C, L/100 km, PSI, 24 h), trip computer average speed 0x24800602 (28 km/h) and travel time 0x24800603 (1259, probably minutes), service interval 0x24500A00 (10000 km) and 0x24500B00 (12 months), ambient-light colours 0x2A070200/0x2A070300, seat count 0x2D410F00 (5), and the custom steering-wheel key 0x21110100 (set to driving mode).
+- **Car info:** 21 active. 6 speakers, left-hand drive, top speed 235, fuel tank capacity reads 0.0 (so keep the 51 L constant).
+- `SETTING_FUNC_LAMP_LR_TRAFFIC_LIGHT` 0x2B020100 read RIGHT. The button app treats it as an indicator, but it is more likely the headlight setting for right-hand traffic.
+- The raw scan is not stored in the repo; this summary is.
 
 **Ignition states (names from ECARX, values seen in the car):** 0x200100 + 1 UNDEFINED, +2 LOCK, +3 OFF, +4 ACC, +5 ON, +6 START, +7 DRIVING. Islam saw +3, +5 and +7, which fits off, on, and engine running. `CarDecode.ignition()` returns these names; `Ignition.isOn` is true for ON, START and DRIVING.
 
 **Fuel (GUESS):** the button app turns 0x404500 into litres for the Cityray with `4.4 + percent × 0.466`, capped at the 51 L tank (`CarDecode.fuelLitresFromPercent`). Its other presets: Preface `4 + p × 0.45` (49 L), Atlas `4 + p × 0.5` (54 L).
 
-**More sensors (GUESS):** indoor 0x100C00 and outdoor 0x100B00 temperature (the button app uses both, as floats, and drops indoor readings outside −40…70 °C), handbrake 0x200300, passenger seat occupied 0x203400, driver seatbelt 0x201200, light sensor 0x200F00, average fuel consumption 0x400100, tire pressures 0x500100–0x500400, range 0x100800, coolant 0x100F00. All other ids are in the catalog.
+**Indoor temperature:** the button app drops readings outside −40…70 °C. All other ids are in the catalog; Probe's **Scan everything** shows which answer.
 
-**Steering angle:** no app we decompiled reads it, by sensor or by the W4M group. So Car Probe's group lines and Tumbler's Android `PERF_STEERING_ANGLE` are the only tests we have. **Correction:** the W4M group is 0x800400 (`SENSOR_GROUP_TYPE_W4M` = 8389632). Probe 0.6 asked for 0x800500, which is the brake-pressure group, so its W4M line proves nothing either way. Probe 0.7 reads all six groups: gyro 0x800100, acceleration 0x800200, wheel pulses 0x800300, W4M 0x800400, brake pressure 0x800500, shaft torque 0x800600.
+**Steering angle:** not available on this car through ECARX (see table). No app we decompiled reads it either, by sensor or by the W4M group. So Car Probe's group lines and Tumbler's Android `PERF_STEERING_ANGLE` are the only tests we have. **Correction:** the W4M group is 0x800400 (`SENSOR_GROUP_TYPE_W4M` = 8389632). Probe 0.6 asked for 0x800500, which is the brake-pressure group, so its W4M line proves nothing either way. Probe 0.7 reads all six groups: gyro 0x800100, acceleration 0x800200, wheel pulses 0x800300, W4M 0x800400, brake pressure 0x800500, shaft torque 0x800600.
 
 **Packed integers (OBSERVED):** RPM and fuel send an integer inside the float's bits, so they show up as tiny values like `1.4E-45`. `CarDecode.packedInt()` unpacks them.
 
@@ -98,7 +113,7 @@ The button app hunts for the indicators in several places, in this order, becaus
 3. Autolink's car proxy service (`com.autolink.carproxyservice/.CarProxyService`, binder interface `com.autolink.adapterbinder.ICarProxyService`, transaction 5 = get int property, 3 = subscribe), with ids 0x21407951 / 0x21407952 (left / right) and 0x21407944 (flash).
 4. Cluster chime requests 0x21401A19 / 0x21401A1A.
 
-`VendorSignal`, `AutolinkCarProxy` and `CarDecode.turnSignalAosp` / `lampSwitch` cover 1 to 3. Car Probe 0.7 shows all of them; flick the indicator to see which one moves.
+`VendorSignal`, `AutolinkCarProxy` and `CarDecode.turnSignalAosp` / `lampSwitch` cover 1 to 3. Car Probe 0.7 showed all of them, and none moved when Islam used the indicators (2026-11-10). Probe 0.8's **Find what changes** listens to every catalog sensor and function for 30 seconds and lists what moved, which is the next way to hunt for them. If nothing moves, the indicators probably don't reach the head unit through any app-readable route.
 
 ## Other routes the apps use
 
