@@ -102,6 +102,9 @@ class EcarxCar(context: Context) {
         }
     }
 
+    /** The raw ECARX sensor manager object, for [EcarxSignals]. Null before [start]. */
+    internal fun sensorManager(): Any? = sensors
+
     /** "active", "notactive", "notavailable", "error", or null if unknown. */
     fun supportStatus(id: Int): String? = sensorCall { Reflect.call(it, "isSensorSupported", id)?.toString() }
 

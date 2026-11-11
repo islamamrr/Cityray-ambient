@@ -21,6 +21,7 @@ import dev.carapps.car.AndroidCar
 import dev.carapps.car.AutolinkCarProxy
 import dev.carapps.car.CarDecode
 import dev.carapps.car.EcarxCatalog
+import dev.carapps.car.EcarxSignals
 import dev.carapps.car.SensorGroup
 import dev.carapps.car.VendorSignal
 import dev.carapps.car.CarFunction
@@ -52,6 +53,9 @@ class ProbeActivity : Activity() {
     private lateinit var scanView: TextView
     private lateinit var scanButton: Button
     @Volatile private var scanning = false
+    private lateinit var signals: EcarxSignals
+    private lateinit var rawButton: Button
+    @Volatile private var rawHunting = false
     private var hunting = false
     private lateinit var huntButton: Button
     private val huntSeen = LinkedHashMap<String, MutableList<String>>()
@@ -92,8 +96,13 @@ class ProbeActivity : Activity() {
         gly = GlyCar(this)
         androidCar = AndroidCar(this)
         carProxy = AutolinkCarProxy(this)
+        signals = EcarxSignals(this)
         catalog = EcarxCatalog.get(this)
         setContentView(buildUi())
+        // Speed and energy are "dangerous" car permissions; ask once so the raw hunt can see them.
+        runCatching {
+            requestPermissions(arrayOf("android.car.permission.CAR_SPEED", "android.car.permission.CAR_ENERGY"), 1)
+        }
     }
 
     override fun onResume() {
@@ -112,6 +121,8 @@ class ProbeActivity : Activity() {
         gly.disconnect()
         androidCar.disconnect()
         carProxy.disconnect()
+        rawHunting = false
+        signals.disconnect()
     }
 
     private fun connect() {
@@ -352,6 +363,92 @@ class ProbeActivity : Activity() {
         main.post(refresh)
     }
 
+    /**
+     * The deep test. Watches every raw CAN signal the car_signal service names, plus every
+     * property Android's car service lists, for [HUNT_SECONDS], and reports the ones that
+     * changed. Turn the wheel or flick the indicator during it. Read-only.
+     */
+    private fun startRawHunt() {
+        if (rawHunting || hunting) return
+        if (!car.isStarted) { scanView.text = "Tap Reconnect first. ${car.lastError ?: ""}"; return }
+        rawHunting = true
+        rawButton.isEnabled = false
+        scanView.text = "Connecting to raw signals..."
+        Thread {
+            val report = try { runRawHunt() } catch (t: Throwable) { "Raw hunt failed: $t" }
+            val file = runCatching {
+                File(getExternalFilesDir(null) ?: filesDir,
+                    "raw-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt").also { it.writeText(report) }
+            }.getOrNull()
+            main.post {
+                lastScanText = report
+                scanView.text = report + (file?.let { "\nSaved to ${it.absolutePath}" } ?: "")
+                rawHunting = false
+                rawButton.isEnabled = true
+            }
+        }.start()
+    }
+
+    private fun runRawHunt(): String {
+        fun say(t: String) = main.post { scanView.text = t }
+        var connected = signals.connect(car)
+        var waited = 0
+        while (!connected && waited < 3000) { Thread.sleep(300); waited += 300; connected = signals.isConnected }
+        val ids = signals.ids
+        val seen = HashMap<String, MutableList<String>>()
+        fun record(key: String, v: String?) {
+            if (v == null) return
+            synchronized(seen) {
+                val l = seen.getOrPut(key) { ArrayList() }
+                if (l.lastOrNull() != v && l.size < 10) l.add(v)
+            }
+        }
+        var subscribed = false
+        if (connected && ids.isNotEmpty()) {
+            subscribed = signals.subscribe(ids.values) { id, v -> record("SIG " + signals.name(id), v?.toString()) }
+            if (!subscribed) {
+                val few = ids.filterKeys { EcarxSignals.INTERESTING.containsMatchIn(it) }.values
+                subscribed = signals.subscribe(few) { id, v -> record("SIG " + signals.name(id), v?.toString()) }
+            }
+        }
+        val subscribeNote = if (subscribed) "subscribed" else "subscribe refused: ${signals.lastError}"
+        val props = if (androidCar.isConnected || androidCar.connect()) androidCar.propertyList() else emptyMap()
+        val end = SystemClock.elapsedRealtime() + HUNT_SECONDS * 1000L
+        var passes = 0
+        var readErrors = 0
+        while (rawHunting && SystemClock.elapsedRealtime() < end) {
+            val left = (end - SystemClock.elapsedRealtime()) / 1000
+            say("Watching ${ids.size} raw signals and ${props.size} Android properties, ${left}s left.\n" +
+                "NOW: turn the wheel left and right, then flick each indicator.")
+            if (connected) for ((name, id) in ids) {
+                val v = signals.value(id)
+                if (v == null) readErrors++ else record("SIG $name", v.toString())
+            }
+            for ((id, type) in props) record("PROP ${EcarxCar.hex(id)} $type", androidCar.anyValue(id, type))
+            passes++
+            Thread.sleep(150)
+        }
+        signals.unsubscribe()
+        return buildString {
+            append("RAW HUNT ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
+            append("car_signal: ${if (connected) "connected via ${signals.route}" else "NOT connected: ${signals.lastError}"}\n")
+            append("signals named: ${ids.size}, $subscribeNote, passes $passes, failed reads $readErrors\n")
+            append("android car: ${if (props.isEmpty()) "no properties (${androidCar.lastError ?: "empty list"})" else "${props.size} properties"}\n")
+            val snapshot = synchronized(seen) { seen.mapValues { it.value.toList() } }
+            val changed = snapshot.filterValues { it.size > 1 }.toSortedMap()
+            val hot = changed.filterKeys { EcarxSignals.INTERESTING.containsMatchIn(it) }
+            append("\nCHANGED, likely steering / indicators / driving (${hot.size})\n")
+            for ((k, v) in hot) append("$k: ${v.joinToString(" > ")}\n")
+            append("\nCHANGED, other (${changed.size - hot.size})\n")
+            for ((k, v) in changed) if (k !in hot) append("$k: ${v.joinToString(" > ")}\n")
+            val still = ids.keys.filter { EcarxSignals.INTERESTING.containsMatchIn(it) && "SIG $it" !in changed }
+            append("\nNAMED BUT DID NOT CHANGE (${still.size})\n")
+            for (n in still) append("$n=${snapshot["SIG $n"]?.lastOrNull() ?: "-"}  ")
+            append("\n\nANDROID PROPERTIES (${props.size})\n")
+            for ((id, type) in props) append("${EcarxCar.hex(id)} $type = ${snapshot["PROP ${EcarxCar.hex(id)} $type"]?.joinToString(" > ") ?: "-"}\n")
+        }
+    }
+
     private fun buildScanReport(rows: List<EcarxCar.ScanRow>, secs: Long): String = buildString {
         append("SCAN ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ")
         append("${Build.DISPLAY}  (${secs}s)\n")
@@ -444,6 +541,8 @@ class ProbeActivity : Activity() {
         scanRow.addView(button("Share scan") { shareScan() })
         huntButton = button("Find what changes (${HUNT_SECONDS}s)") { startHunt() }
         scanRow.addView(huntButton)
+        rawButton = button("Raw signal hunt (${HUNT_SECONDS}s)") { startRawHunt() }
+        scanRow.addView(rawButton)
         root.addView(scanRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
