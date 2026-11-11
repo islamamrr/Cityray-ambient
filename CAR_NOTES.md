@@ -104,7 +104,7 @@ These come from the ECARX interface: fuel types 0x100100, vehicle types 0x100200
 
 Geely's own car API is `com.geely.os.car.GlyCar` (one build calls it `com.geely.p003os.car.GlyCar`). It has `create(Context)`, `getIntProperty(id)`, `addRateSingleCarEventCallback(callback, rate, int[])` (button app passes rate 3), the older `registerSingleCarEventCallback(callback, int[])`, `unregisterSingleCarEventCallback(callback)` and `disconnect()`. The callback is `onChangeEvent(id, ?, value)`: the button app reads the id from argument 0 and the value from argument 2, and ignores `Integer.MIN_VALUE`. It uses this only for ignition (0x200100, same values as the ECARX sensor). `GlyCar.listenValues()` does the same.
 
-## Raw CAN signals (`EcarxSignals`), GUESS
+## Raw CAN signals (`EcarxSignals`), route CONFIRMED
 
 Below the sensor API sits ECARX's `car_signal` service (`ecarx.car.hardware.signal.CarSignalManager`). It exposes the individual CAN signals by name. A sensor that is dead in the sensor API can still have a live raw signal here, and this is the layer the car's own apps (camera, climate) use.
 
@@ -112,9 +112,13 @@ Below the sensor API sits ECARX's `car_signal` service (`ecarx.car.hardware.sign
 - **Ids:** static fields named `SignalId_*` on the manager class, so the list comes from the car's own firmware. `getSignalValue(id)` reads one. The service only keeps values for subscribed signals, so `registerCallback(callback, SignalFilter)` first.
 - **Names other open-source Geely apps use:** `VehSpdLgtA` speed, `EngNSafeEngN` RPM, `ExtrLtgStsTurnIndrLe` / `ExtrLtgStsTurnIndrRi` indicators, `ExtrLtgStsHiBeam` / `LoBeam`, `VehBattUSysU` 12 V battery, `SteerWhlBtnPsd` wheel buttons. Sources: DezzK/status-widget, 1456581280/jilicarplay, Salat39/GInputBridge (gbinder's own source) on GitHub. We use the API facts, not their code.
 - **Why this matters for steering and indicators:** the car opens the side camera when an indicator is on at low speed, so the head unit does receive the indicator. The camera's guide lines suggest it receives steering angle too.
+- **Result, 2026-11-11 (Probe 0.9, parked):** connected through the sensor manager, 2953 named signals, subscribe accepted. **Indicators found (OBSERVED):** `ExtrLtgStsTurnIndrLe` / `ExtrLtgStsTurnIndrRi` go 1/0 with each blink of the lamp, `IndcrSts` is the steady state (0 off, 1 left, 2 right; `CarDecode.turnState`), `ExtrLtgStsStopLi` is the brake light. Android's car service listed 2100 properties but nearly all were unreadable and none changed.
+- **Steering, open:** `SteerWhlSnsrAg` and `SteerWhlSnsrAgSpd` exist, and the sensor's message arrives (`SteerWhlSnsrChks` 221, `SteerWhlSnsrCntr` 6, `SteerWhlSnsrQf` 3), but the angle read came back empty. Same for `VehSpdLgtA`, `WhlSpdCircuml*`, `EngNSafeEngN`, `AgDataRawSafeYawRate`. Likely cause: these are float signals and the manager has one typed getter per signal (`float getAmbTRawAmbTVal()` is one gbinder calls), so `getSignalValue(int)` is the wrong call for them. `EcarxSignals.read(name)` calls the typed getter. Probe 0.10's **Steering watch** tests exactly this on a short list and prints the error text of anything that fails.
 - Car Probe 0.9's **Raw signal hunt** watches every named signal, plus every property Android's car service lists, for 30 seconds and reports what changed.
 
-## Turn signals, GUESS
+## Turn signals
+
+**Solved through raw signals, see above.** The routes below are the ones tried before; none of them moved on the Cityray.
 
 The button app hunts for the indicators in several places, in this order, because no single one works on every Geely:
 

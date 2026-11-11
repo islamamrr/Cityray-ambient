@@ -84,6 +84,18 @@ object CarDecode {
     }
 
     /**
+     * Raw signal [EcarxSignals.TURN_STATE] (IndcrSts). OBSERVED 2026-11-11: 0 off, 1 left,
+     * 2 right (left was flicked first and lamp signals agree). 3 as hazard is a GUESS.
+     */
+    fun turnState(value: Int): Turn? = when (value) {
+        0 -> Turn(false, false, false)
+        1 -> Turn(left = true, right = false, hazard = false)
+        2 -> Turn(left = false, right = true, hazard = false)
+        3 -> Turn(true, true, true)
+        else -> null
+    }
+
+    /**
      * GUESS. Vendor lamp switches ([VendorSignal.BCM_TURN_LEFT] and friends): 0 off,
      * 1..254 on, 255 or negative unknown. That is how the button app reads them.
      */

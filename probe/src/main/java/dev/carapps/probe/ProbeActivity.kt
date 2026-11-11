@@ -55,6 +55,7 @@ class ProbeActivity : Activity() {
     @Volatile private var scanning = false
     private lateinit var signals: EcarxSignals
     private lateinit var rawButton: Button
+    private lateinit var steerButton: Button
     @Volatile private var rawHunting = false
     private var hunting = false
     private lateinit var huntButton: Button
@@ -449,6 +450,95 @@ class ProbeActivity : Activity() {
         }
     }
 
+    /**
+     * The focused test: a short list of steering, speed and indicator signals, read many
+     * times a second with every way the signal manager offers, with the error text of each
+     * way that fails. Turn the wheel during it. Read-only.
+     */
+    private fun startSteerWatch() {
+        if (rawHunting || hunting) return
+        if (!car.isStarted) { scanView.text = "Tap Reconnect first. ${car.lastError ?: ""}"; return }
+        rawHunting = true
+        steerButton.isEnabled = false
+        scanView.text = "Connecting to raw signals..."
+        Thread {
+            val report = try { runSteerWatch() } catch (t: Throwable) { "Steering watch failed: $t" }
+            val file = runCatching {
+                File(getExternalFilesDir(null) ?: filesDir,
+                    "steer-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt").also { it.writeText(report) }
+            }.getOrNull()
+            main.post {
+                lastScanText = report
+                scanView.text = report + (file?.let { "\nSaved to ${it.absolutePath}" } ?: "")
+                rawHunting = false
+                steerButton.isEnabled = true
+            }
+        }.start()
+    }
+
+    private fun runSteerWatch(): String {
+        var connected = signals.connect(car)
+        var waited = 0
+        while (!connected && waited < 3000) { Thread.sleep(300); waited += 300; connected = signals.isConnected }
+        if (!connected) return "Steering watch: car_signal NOT connected: ${signals.lastError}"
+        val focus = signals.ids.filterKeys { STEER_FOCUS.containsMatchIn(it) }.entries.take(80).associate { it.key to it.value }
+        val seen = HashMap<String, MutableList<String>>()
+        val counts = HashMap<String, Int>()
+        val errors = HashMap<String, String>()
+        fun record(key: String, v: String) = synchronized(seen) {
+            counts[key] = (counts[key] ?: 0) + 1
+            val l = seen.getOrPut(key) { ArrayList() }
+            if (l.lastOrNull() != v && l.size < 14) l.add(v)
+        }
+        fun num(n: Number) = if (n is Float || n is Double) String.format(Locale.US, "%.2f", n.toDouble()) else n.toString()
+        val subscribed = signals.subscribe(focus.values) { id, v ->
+            record("cb " + signals.name(id), if (v is Number) num(v) else "$v(${v?.javaClass?.simpleName})")
+        }
+        val subscribeNote = if (subscribed) "subscribed" else "subscribe refused: ${signals.lastError}"
+        val end = SystemClock.elapsedRealtime() + STEER_SECONDS * 1000L
+        var passes = 0
+        while (rawHunting && SystemClock.elapsedRealtime() < end) {
+            val left = (end - SystemClock.elapsedRealtime()) / 1000
+            val live = synchronized(seen) {
+                listOf("SteerWhlSnsrAg", "SteerWhlSnsrAgSpd", "IndcrSts").joinToString("  ") { n ->
+                    "$n=" + (seen["get $n"]?.lastOrNull() ?: seen["cb $n"]?.lastOrNull() ?: seen["id $n"]?.lastOrNull() ?: "-")
+                }
+            }
+            main.post { scanView.text = "Watching ${focus.size} signals, ${left}s left.\nNOW: turn the wheel slowly left, then right, then flick an indicator.\n$live" }
+            for ((name, id) in focus) {
+                val g = signals.read(name)
+                if (g != null) record("get $name", num(g)) else if ("get $name" !in errors) errors["get $name"] = signals.lastError ?: "null"
+                val v = signals.value(id)
+                if (v != null) record("id $name", v.toString()) else if ("id $name" !in errors) errors["id $name"] = signals.lastError ?: "null"
+            }
+            passes++
+            Thread.sleep(80)
+        }
+        signals.unsubscribe()
+        return buildString {
+            append("STEERING WATCH ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
+            append("car_signal: connected via ${signals.route}, $subscribeNote, ${focus.size} signals, passes $passes\n")
+            append("Each signal: typed getter (get), getSignalValue (id), callback (cb). xN = number of reads.\n\n")
+            val snap = synchronized(seen) { seen.mapValues { it.value.toList() } }
+            for (name in focus.keys.sorted()) {
+                append("$name  [getter: ${signals.getterType(name) ?: "none"}]\n")
+                for (way in listOf("get", "id", "cb")) {
+                    val k = "$way $name"
+                    val vals = snap[k]
+                    append("  $way: ")
+                    append(when {
+                        vals != null -> vals.joinToString(" > ") + "  x${counts[k]}"
+                        errors[k] != null -> "FAILED ${errors[k]}"
+                        else -> "nothing"
+                    })
+                    append("\n")
+                }
+            }
+            append("\nMANAGER METHODS\n")
+            for (m in signals.generalMethods().take(120)) append("$m\n")
+        }
+    }
+
     private fun buildScanReport(rows: List<EcarxCar.ScanRow>, secs: Long): String = buildString {
         append("SCAN ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ")
         append("${Build.DISPLAY}  (${secs}s)\n")
@@ -543,6 +633,8 @@ class ProbeActivity : Activity() {
         scanRow.addView(huntButton)
         rawButton = button("Raw signal hunt (${HUNT_SECONDS}s)") { startRawHunt() }
         scanRow.addView(rawButton)
+        steerButton = button("Steering watch (${STEER_SECONDS}s)") { startSteerWatch() }
+        scanRow.addView(steerButton)
         root.addView(scanRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
@@ -607,5 +699,9 @@ class ProbeActivity : Activity() {
         const val KEY_RANGE_SIZE = 300
         const val KEY_LISTEN_SECONDS = 20
         const val HUNT_SECONDS = 30
+        const val STEER_SECONDS = 20
+
+        /** The short list the steering watch reads many times a second. */
+        val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")
     }
 }

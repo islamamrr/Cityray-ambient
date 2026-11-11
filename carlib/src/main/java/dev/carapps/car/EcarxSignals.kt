@@ -113,6 +113,38 @@ class EcarxSignals(context: Context) {
     }
 
     /**
+     * Reads one signal through its own typed getter, for example getSteerWhlSnsrAg(). The
+     * manager has one getter per signal; number-like signals (angles, speeds, temperatures)
+     * return float there and do not answer [value]. Null if there is no getter or it threw.
+     */
+    fun read(name: String): Number? {
+        val m = manager ?: return null
+        return try {
+            val g = getter(name) ?: run { lastError = "no getter get$name"; return null }
+            g.invoke(m) as? Number
+        } catch (t: Throwable) {
+            lastError = EcarxCar.describe(t)
+            null
+        }
+    }
+
+    /** Return type of the typed getter for [name] ("float", "int", ...), or null if there is none. */
+    fun getterType(name: String): String? = getter(name)?.returnType?.simpleName
+
+    /** Signatures of the manager's general methods (not per-signal getters/setters), for debug reports. */
+    fun generalMethods(): List<String> {
+        val cls = Reflect.classOrNull(MANAGER_CLASS) ?: return emptyList()
+        return cls.methods.filter { m ->
+            m.declaringClass != Any::class.java &&
+                !((m.name.startsWith("get") || m.name.startsWith("set")) && m.name.drop(3) in ids)
+        }.map { m -> "${m.returnType.simpleName} ${m.name}(${m.parameterTypes.joinToString(",") { it.simpleName }})" }
+            .distinct().sorted()
+    }
+
+    private fun getter(name: String) =
+        Reflect.classOrNull(MANAGER_CLASS)?.let { Reflect.findMethod(it, "get$name", 0) }?.also { it.isAccessible = true }
+
+    /**
      * Subscribes to [signalIds]. [onChange] gets (id, value) on a binder thread, not the main
      * thread. Replaces any earlier subscription. Returns false if the service refused.
      */
@@ -176,13 +208,27 @@ class EcarxSignals(context: Context) {
         const val PREFIX = "SignalId_"
 
         /**
-         * Signal names other open-source Geely apps rely on. GUESS for the Cityray: check that
-         * each exists in [ids] before use.
+         * OBSERVED on the Cityray, 2026-11-11 (Probe 0.9): the indicator lamps, 1 while the lamp
+         * is lit and 0 while dark, so they blink with it. [TURN_STATE] does not blink.
          */
-        const val SPEED = "VehSpdLgtA"
-        const val RPM = "EngNSafeEngN"
         const val TURN_LEFT = "ExtrLtgStsTurnIndrLe"
         const val TURN_RIGHT = "ExtrLtgStsTurnIndrRi"
+
+        /** OBSERVED: indicator state without the blinking. Decode with [CarDecode.turnState]. */
+        const val TURN_STATE = "IndcrSts"
+
+        /** OBSERVED: brake lights, 1 while the pedal is pressed. */
+        const val BRAKE_LIGHT = "ExtrLtgStsStopLi"
+
+        /**
+         * Named on the Cityray but not read yet (GUESS). The steering sensor's message does
+         * arrive (its counter and quality signals are live), the angle itself needs [read].
+         */
+        const val STEERING_ANGLE = "SteerWhlSnsrAg"
+        const val STEERING_SPEED = "SteerWhlSnsrAgSpd"
+        const val SPEED = "VehSpdLgtA"
+        const val RPM = "EngNSafeEngN"
+        const val YAW_RATE = "AgDataRawSafeYawRate"
         const val HIGH_BEAM = "ExtrLtgStsHiBeam"
         const val LOW_BEAM = "ExtrLtgStsLoBeam"
         const val BATTERY_VOLTAGE = "VehBattUSysU"
