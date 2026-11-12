@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -24,6 +25,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import dev.carapps.car.CarDecode
 import dev.carapps.car.ParkWatcher
+import java.io.File
 
 class MainActivity : Activity() {
 
@@ -45,6 +47,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (showLastCrash()) return
         bank = Bank(this).apply { load() }
         online = Online(this)
         sfx = Sfx()
@@ -66,6 +69,37 @@ class MainActivity : Activity() {
         showSetup()
     }
 
+    // ------------------------------------------------------------------ Crash report
+
+    private val crashFile by lazy { File(filesDir, "crash.txt") }
+
+    /**
+     * Saves any crash to a file, and on the next start shows it on screen once, so a photo of
+     * the screen is enough to fix it. Returns true when the crash screen is showing.
+     */
+    private fun showLastCrash(): Boolean {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, e ->
+            runCatching { crashFile.writeText("Quiz Duel ${BuildConfigInfo.version(this)}\n\n" + Log.getStackTraceString(e)) }
+            previous?.uncaughtException(thread, e)
+        }
+        if (!crashFile.exists()) return false
+        val report = runCatching { crashFile.readText() }.getOrDefault("")
+        val col = column(gapDp = 16).apply { setPadding(dp(24), dp(32), dp(24), dp(32)) }
+        col.addView(label("Quiz Duel crashed last time. Please send a photo of this screen.\nاللعبة وقعت المرة اللي فاتت، ابعت صورة للشاشة دي.", 20f, Palette.GOLD, bold = true), fill())
+        col.addView(label(report, 13f, Palette.INK).apply { textDirection = View.TEXT_DIRECTION_LTR; textAlignment = View.TEXT_ALIGNMENT_VIEW_START }, fill())
+        col.addView(tile("Continue / كمل", 22f, Palette.CARD2) {
+            crashFile.delete()
+            recreate()
+        }, fill())
+        setContentView(ScrollView(this).apply {
+            setBackgroundColor(Palette.BG)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            addView(col)
+        })
+        return true
+    }
+
     private fun t(en: String, ar: String) = if (lang == Lang.AR) ar else en
 
     private fun direction(v: View) {
@@ -80,11 +114,15 @@ class MainActivity : Activity() {
      * With no gear reading (a phone) nothing blocks.
      */
     private fun onGear(gear: CarDecode.Gear) {
-        val wasBlocked = blocked
+        val previous = lastGear
+        lastGear = gear
         blocked = gear != CarDecode.Gear.P && gear != CarDecode.Gear.UNKNOWN
         parkCover.visibility = if (blocked) View.VISIBLE else View.GONE
-        if (blocked && !wasBlocked) moveTaskToBack(true)
+        // Only step aside on a real shift out of Park, never on the first reading at launch.
+        if (blocked && previous == CarDecode.Gear.P) moveTaskToBack(true)
     }
+
+    private var lastGear = CarDecode.Gear.UNKNOWN
 
     // ------------------------------------------------------------------ Setup screen
 
@@ -632,13 +670,16 @@ class MainActivity : Activity() {
         super.onResume()
         resumed = true
         hideSystemBars()
+        if (!::park.isInitialized) return
         park.start()
         lastTick = SystemClock.uptimeMillis()
     }
 
     override fun onPause() {
         resumed = false
+        if (!::park.isInitialized) { super.onPause(); return }
         park.stop()
+        lastGear = CarDecode.Gear.UNKNOWN
         blocked = false
         parkCover.visibility = View.GONE
         super.onPause()
@@ -646,7 +687,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         stopTimer()
-        sfx.release()
+        if (::sfx.isInitialized) sfx.release()
         super.onDestroy()
     }
 
