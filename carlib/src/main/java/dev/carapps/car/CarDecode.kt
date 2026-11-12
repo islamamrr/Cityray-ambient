@@ -10,15 +10,15 @@ object CarDecode {
     enum class Gear { P, R, N, D, OTHER, UNKNOWN }
 
     /**
-     * P (+0x40) CONFIRMED in the car on 2026-10-31. R, N and D were assigned from the
-     * order of shifting and are not certain: on 2026-11-01 reverse did not register as
-     * leaving Park. So any value other than P comes back as at least [Gear.OTHER].
+     * CONFIRMED in the car on 2026-11-08, gear by gear: +0x30 P, +0x40 R, +0x10 N, +0x20 D.
+     * The button app agrees: it treats 0x200240 as "reverse on". (The 2026-10-31 map was
+     * shifted by one, which is why reverse looked like Park on 2026-11-01.)
      */
     fun gear(event: Int): Gear = when (event - CarSensor.GEAR.id) {
-        0x40 -> Gear.P
-        0x10 -> Gear.R
-        0x20 -> Gear.N
-        0x30 -> Gear.D
+        0x30 -> Gear.P
+        0x40 -> Gear.R
+        0x10 -> Gear.N
+        0x20 -> Gear.D
         else -> Gear.OTHER
     }
 
