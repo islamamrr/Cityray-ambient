@@ -101,7 +101,7 @@ class EcarxSignals(context: Context) {
         return manager != null
     }
 
-    /** Current raw value of one signal, or null if the call failed. */
+    /** Current raw value of one whole-number signal, or null if the call failed. Float signals fail here: use [number]. */
     fun value(id: Int): Int? {
         val m = manager ?: return null
         return try {
@@ -111,6 +111,26 @@ class EcarxSignals(context: Context) {
             null
         }
     }
+
+    /** True if the car stores [id] as a float (angles, speeds, temperatures). Null if unknown. */
+    fun isFloat(id: Int): Boolean? {
+        val m = manager ?: return null
+        return runCatching { Reflect.call(m, "isFloatSignal", id) as? Boolean }.getOrNull()
+    }
+
+    /** Current value of a float signal via getFloatSignalValue(id), or null if the call failed. */
+    fun floatValue(id: Int): Float? {
+        val m = manager ?: return null
+        return try {
+            (Reflect.call(m, "getFloatSignalValue", id) as? Number)?.toFloat()
+        } catch (t: Throwable) {
+            lastError = EcarxCar.describe(t)
+            null
+        }
+    }
+
+    /** Any signal's current value, using the float call when the car says it is a float. */
+    fun number(id: Int): Number? = if (isFloat(id) == true) floatValue(id) else value(id)
 
     /**
      * Reads one signal through its own typed getter, for example getSteerWhlSnsrAg(). The

@@ -504,12 +504,17 @@ class ProbeActivity : Activity() {
                     "$n=" + (seen["get $n"]?.lastOrNull() ?: seen["cb $n"]?.lastOrNull() ?: seen["id $n"]?.lastOrNull() ?: "-")
                 }
             }
-            main.post { scanView.text = "Watching ${focus.size} signals, ${left}s left.\nNOW: turn the wheel slowly left, then right, then flick an indicator.\n$live" }
+            main.post { scanView.text = "Watching ${focus.size} signals, ${left}s left.\nEngine running. Turn the wheel slowly left and right, then drive a few metres.\n$live" }
             for ((name, id) in focus) {
+                if (name == "IndcrSts" || name.startsWith("ExtrLtg")) { signals.value(id)?.let { record("id $name", it.toString()) }; continue }
                 val g = signals.read(name)
                 if (g != null) record("get $name", num(g)) else if ("get $name" !in errors) errors["get $name"] = signals.lastError ?: "null"
                 val v = signals.value(id)
                 if (v != null) record("id $name", v.toString()) else if ("id $name" !in errors) errors["id $name"] = signals.lastError ?: "null"
+                if (signals.isFloat(id) == true) {
+                    val f = signals.floatValue(id)
+                    if (f != null) record("fl $name", num(f)) else if ("fl $name" !in errors) errors["fl $name"] = signals.lastError ?: "null"
+                }
             }
             passes++
             Thread.sleep(80)
@@ -518,11 +523,12 @@ class ProbeActivity : Activity() {
         return buildString {
             append("STEERING WATCH ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
             append("car_signal: connected via ${signals.route}, $subscribeNote, ${focus.size} signals, passes $passes\n")
-            append("Each signal: typed getter (get), getSignalValue (id), callback (cb). xN = number of reads.\n\n")
+            append("Each signal: typed getter (get), getFloatSignalValue (fl), getSignalValue (id), callback (cb). xN = number of reads.\n")
+            append("Cntr / Chks signals are message counters: if they never change, the car is not refreshing that message.\n\n")
             val snap = synchronized(seen) { seen.mapValues { it.value.toList() } }
             for (name in focus.keys.sorted()) {
                 append("$name  [getter: ${signals.getterType(name) ?: "none"}]\n")
-                for (way in listOf("get", "id", "cb")) {
+                for (way in listOf("get", "fl", "id", "cb")) {
                     val k = "$way $name"
                     val vals = snap[k]
                     append("  $way: ")
@@ -699,9 +705,9 @@ class ProbeActivity : Activity() {
         const val KEY_RANGE_SIZE = 300
         const val KEY_LISTEN_SECONDS = 20
         const val HUNT_SECONDS = 30
-        const val STEER_SECONDS = 20
+        const val STEER_SECONDS = 60
 
         /** The short list the steering watch reads many times a second. */
-        val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")
+        val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|SteerWhlAg|^ALat|^ALgt|^VehSpdIndcd$|^BrkPedl|^AccrPedl|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")
     }
 }
