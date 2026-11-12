@@ -23,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import dev.carapps.car.CarDecode
 import dev.carapps.car.ParkWatcher
 import java.io.File
@@ -141,11 +142,29 @@ class MainActivity : Activity() {
         stopTimer()
         game = null
         stage.removeAllViews()
-        val scroll = ScrollView(this).apply { isFillViewport = true }
-        val col = column(gapDp = 18).apply { setPadding(dp(24), dp(28), dp(24), dp(40)) }
+        val scroll = ScrollView(this).apply { isFillViewport = false }
+        val col = column(gapDp = 12).apply { setPadding(dp(24), dp(20), dp(24), dp(24)) }
         direction(col)
         scroll.addView(col)
-        stage.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        // The Start button lives outside the scrolling list, so it is always on screen.
+        val startBottom = tile(t("Start", "يلا نبدأ"), 24f, Palette.GOLD, Palette.DARK_TEXT, null)
+            .apply { setPadding(dp(16), dp(18), dp(16), dp(18)) }
+        val startTop = tile(t("Start", "يلا نبدأ"), 18f, Palette.GOLD, Palette.DARK_TEXT, null)
+            .apply { setPadding(dp(22), dp(10), dp(22), dp(10)) }
+        val page = column().apply {
+            // Keep clear of the car's own bars even if they draw over the app.
+            setOnApplyWindowInsetsListener { v, insets ->
+                @Suppress("DEPRECATION")
+                v.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                insets
+            }
+        }
+        page.addView(scroll, fillWeight())
+        val bar = column().apply { setPadding(dp(24), dp(10), dp(24), dp(20)); setBackgroundColor(Palette.BG) }
+        bar.addView(startBottom, fill())
+        page.addView(bar, fill())
+        direction(page)
+        stage.addView(page, FrameLayout.LayoutParams(-1, -1))
 
         // Title and language
         val head = row(gapDp = 12).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -153,6 +172,7 @@ class MainActivity : Activity() {
         titles.addView(label(t("Quiz Duel", "تحدي الفريقين"), 34f, Palette.INK, bold = true))
         titles.addView(label(t("Two teams, one screen. Fastest right answer wins.", "فريقين، شاشة واحدة، والأسرع يكسب."), 17f, Palette.MUTED))
         head.addView(titles, weight())
+        head.addView(startTop, wrap())
         head.addView(tile(if (lang == Lang.AR) "English" else "عربي", 18f, Palette.CARD2) {
             lang = if (lang == Lang.AR) Lang.EN else Lang.AR
             prefs.edit().putString("lang", if (lang == Lang.AR) "ar" else "en").apply()
@@ -233,10 +253,10 @@ class MainActivity : Activity() {
         col.addView(quick, fill())
 
         val cats = bank.categories.values.toList()
-        cats.chunked(2).forEach { pair ->
+        cats.chunked(3).forEach { pair ->
             val r = row(gapDp = 10)
             pair.forEach { c ->
-                val chip = tile("${c.icon}  ${c.name(lang)}\n${bank.count(c.id, lang)} ${t("questions", "سؤال")}", 17f, Palette.CARD) {
+                val chip = tile("${c.icon}  ${c.name(lang)}\n${bank.count(c.id, lang)} ${t("questions", "سؤال")}", 15f, Palette.CARD) {
                     if (c.id in chosen) chosen.remove(c.id) else chosen.add(c.id)
                     styleChip(c.id)
                 }
@@ -244,7 +264,7 @@ class MainActivity : Activity() {
                 styleChip(c.id)
                 r.addView(chip, weight())
             }
-            if (pair.size == 1) r.addView(View(this), weight())
+            repeat(3 - pair.size) { r.addView(View(this), weight()) }
             col.addView(r, fill())
         }
 
@@ -273,12 +293,12 @@ class MainActivity : Activity() {
         col.addView(fetch, fill())
         col.addView(onlineStatus, fill())
 
-        // Start
-        col.addView(tile(t("Start", "يلا نبدأ"), 26f, Palette.GOLD, Palette.DARK_TEXT) {
+        // Start (both buttons do the same)
+        val go = go@{
             val playable = bank.available(chosen, lang)
             if (playable.isEmpty()) {
-                onlineStatus.text = t("Pick at least one category with questions.", "اختار فئة واحدة على الأقل فيها أسئلة.")
-                return@tile
+                Toast.makeText(this, t("Pick at least one category with questions.", "اختار فئة واحدة على الأقل فيها أسئلة."), Toast.LENGTH_LONG).show()
+                return@go
             }
             val teamNames = names.mapIndexed { i, e -> e.text.toString().trim().ifEmpty { defaultNames.getValue(lang)[i] } }
             prefs.edit()
@@ -288,7 +308,11 @@ class MainActivity : Activity() {
                 .putStringSet("cats", HashSet(chosen))
                 .apply()
             startGame(Settings(lang, mode, length, seconds, playable, pick, teamNames))
-        }.apply { setPadding(dp(16), dp(22), dp(16), dp(22)) }, fill())
+        }
+        listOf(startBottom, startTop).forEach { b ->
+            b.isClickable = true
+            b.setOnClickListener { go() }
+        }
     }
 
     private fun section(text: String) = label(text.uppercase(), 15f, Palette.GOLD, bold = true).apply {

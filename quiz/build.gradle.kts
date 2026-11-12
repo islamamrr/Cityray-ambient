@@ -11,8 +11,8 @@ android {
         applicationId = "dev.carapps.quiz"
         minSdk = 26
         targetSdk = 30
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     signingConfigs {
