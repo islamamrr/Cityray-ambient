@@ -1,0 +1,38 @@
+{
+"sets": [
+{"category": {"id": "eg_cinema", "en": "Egyptian Cinema", "ar": "السينما المصرية", "icon": "🎬", "egypt": true},
+ "questions": [
+{"en": ["Who starred in \"Teer Enta\" (2009)?", "Ahmed Mekky", "Ahmed Helmy", "Mohamed Henedy", "Hany Ramzy"],
+ "ar": ["مين بطل فيلم «طير انت» (2009)؟", "أحمد مكي", "أحمد حلمي", "محمد هنيدي", "هاني رمزي"]},
+{"en": ["Who starred in \"Welad Rizk\" (2015)?", "Ahmed Ezz", "Ahmed El Sakka", "Mohamed Ramadan", "Karim Abdel Aziz"],
+ "ar": ["مين بطل فيلم «ولاد رزق» (2015)؟", "أحمد عز", "أحمد السقا", "محمد رمضان", "كريم عبد العزيز"]},
+{"en": ["Who starred in the action film \"Mafia\" (2002)?", "Ahmed El Sakka", "Ahmed Ezz", "Karim Abdel Aziz", "Mostafa Shaaban"],
+ "ar": ["مين بطل فيلم «مافيا» (2002)؟", "أحمد السقا", "أحمد عز", "كريم عبد العزيز", "مصطفى شعبان"]},
+{"en": ["Who starred in \"Ramadan Mabrouk Abul Alamein Hamouda\" (2008)?", "Mohamed Henedy", "Mohamed Saad", "Ahmed Helmy", "Talaat Zakaria"],
+ "ar": ["مين بطل فيلم «رمضان مبروك أبو العلمين حمودة» (2008)؟", "محمد هنيدي", "محمد سعد", "أحمد حلمي", "طلعت زكريا"]},
+{"en": ["Ahmed Zaki played President Sadat in which film?", "Ayam El Sadat", "Nasser 56", "El Batal", "Zawgat Ragol Mohem"],
+ "ar": ["أحمد زكي لعب دور السادات في أنهي فيلم؟", "أيام السادات", "ناصر 56", "البطل", "زوجة رجل مهم"]}
+]},
+{"category": {"id": "eg_ramadan", "en": "Ramadan TV & Series", "ar": "مسلسلات وبرامج رمضان", "icon": "🌙", "egypt": true},
+ "questions": [
+{"en": ["The series \"Zaat\" (2013) is based on a novel by…", "Sonallah Ibrahim", "Naguib Mahfouz", "Ihsan Abdel Quddous", "Alaa Al Aswany"],
+ "ar": ["مسلسل «ذات» (2013) مأخوذ عن رواية لمين؟", "صنع الله إبراهيم", "نجيب محفوظ", "إحسان عبد القدوس", "علاء الأسواني"]},
+{"en": ["Who starred in the Ramadan series \"El Leil W Akhro\" (2003)?", "Yehia El-Fakhrany", "Nour El-Sherif", "Adel Imam", "Mahmoud Abdel Aziz"],
+ "ar": ["مين بطل مسلسل «الليل وآخره» (2003)؟", "يحيى الفخراني", "نور الشريف", "عادل إمام", "محمود عبد العزيز"]},
+{"en": ["Which comedian was \"Amo Fouad\" on children's Ramadan TV?", "Fouad El Mohandes", "Samir Ghanem", "Abdel Moneim Madbouly", "Mohamed Sobhi"],
+ "ar": ["مين «عمو فؤاد» في برامج الأطفال في رمضان؟", "فؤاد المهندس", "سمير غانم", "عبد المنعم مدبولي", "محمد صبحي"]}
+]},
+{"category": {"id": "eg_football", "en": "Egyptian Football", "ar": "الكورة المصرية", "icon": "⚽", "egypt": true},
+ "questions": [
+{"en": ["Hossam and Ibrahim Hassan are…", "Twin brothers", "Father and son", "Cousins", "Uncle and nephew"],
+ "ar": ["حسام وإبراهيم حسن يبقوا إيه؟", "توأم", "أب وابنه", "ولاد عم", "عم وابن أخوه"]},
+{"en": ["Which club is known as \"The Club of the Century\" in Africa?", "Al Ahly", "Zamalek", "TP Mazembe", "Espérance"],
+ "ar": ["أنهي نادي لقبه «نادي القرن» في أفريقيا؟", "الأهلي", "الزمالك", "مازيمبي", "الترجي"]}
+]},
+{"category": {"id": "eg_food", "en": "Egyptian Food & Streets", "ar": "أكل وشوارع مصر", "icon": "🥙", "egypt": true},
+ "questions": [
+{"en": ["Qatayef, a Ramadan sweet, is…", "Small pancakes stuffed with nuts or cream", "Fried dough balls in syrup", "Semolina cake", "Rice pudding"],
+ "ar": ["القطايف عبارة عن إيه؟", "عجينة صغيرة محشية مكسرات أو قشطة", "لقمة القاضي", "بسبوسة", "رز بلبن"]}
+]}
+]
+}
