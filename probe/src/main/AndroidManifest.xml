@@ -11,10 +11,19 @@
     <uses-permission android:name="android.car.permission.CAR_EXTERIOR_LIGHTS" />
     <uses-permission android:name="android.car.permission.CAR_DYNAMICS_STATE" />
 
+    <!-- To list the head unit's own camera apps (Find camera apps button). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <application
         android:label="Car Probe"
         android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="dev.carapps.probe.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <activity
             android:name=".ProbeActivity"

@@ -57,6 +57,7 @@ class ProbeActivity : Activity() {
     private lateinit var rawButton: Button
     private lateinit var steerButton: Button
     @Volatile private var rawHunting = false
+    @Volatile private var packing = false
     private var hunting = false
     private lateinit var huntButton: Button
     private val huntSeen = LinkedHashMap<String, MutableList<String>>()
@@ -580,6 +581,33 @@ class ProbeActivity : Activity() {
         }
     }
 
+    /** Lists the head unit's camera / parking / vehicle apps, so we can see who draws the guide lines. */
+    private fun findCameraApps() {
+        val report = try { CameraApps.describe(CameraApps.find(this)) } catch (t: Throwable) { "Find camera apps failed: $t" }
+        lastScanText = report
+        scanView.text = report + "\nTap Share scan to send this list."
+    }
+
+    /** Zips those apps' APK files and opens the share sheet. Copies files only, runs nothing. */
+    private fun packCameraApps() {
+        if (packing) return
+        packing = true
+        scanView.text = "Finding camera apps..."
+        Thread {
+            val msg = try {
+                val list = CameraApps.find(this)
+                val (file, where) = CameraApps.zip(this, list) { p -> main.post { scanView.text = p } }
+                main.post {
+                    try { startActivity(android.content.Intent.createChooser(CameraApps.shareIntent(this, file), "Send camera APKs")) }
+                    catch (_: Throwable) { }
+                }
+                String.format(Locale.US, "Packed %d apps, %.1f MB, saved to %s.\nIf the share sheet does not offer Bluetooth, copy that file to a USB stick.\n\n%s",
+                    list.size, file.length() / 1e6, where, CameraApps.describe(list))
+            } catch (t: Throwable) { "Packing failed: $t" }
+            main.post { scanView.text = msg; lastScanText = msg; packing = false }
+        }.start()
+    }
+
     private fun short(c: String) = when (c) {
         "CONFIRMED" -> "ok"
         "OBSERVED" -> "seen"
@@ -646,6 +674,10 @@ class ProbeActivity : Activity() {
         steerButton = button("Steering watch (${STEER_SECONDS}s)") { startSteerWatch() }
         scanRow.addView(steerButton)
         root.addView(scanRow, spaced())
+        val appRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START }
+        appRow.addView(button("Find camera apps") { findCameraApps() })
+        appRow.addView(button("Pack and share their APKs") { packCameraApps() })
+        root.addView(appRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
         }.also { root.addView(it, spaced()) }
