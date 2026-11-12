@@ -112,10 +112,24 @@ class EcarxSignals(context: Context) {
         }
     }
 
-    /** True if the car stores [id] as a float (angles, speeds, temperatures). Null if unknown. */
+    private val floatCache = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+
+    /** True if the car stores [id] as a float (angles, speeds, temperatures). Null if unknown. Cached. */
     fun isFloat(id: Int): Boolean? {
+        floatCache[id]?.let { return it }
         val m = manager ?: return null
-        return runCatching { Reflect.call(m, "isFloatSignal", id) as? Boolean }.getOrNull()
+        val f = runCatching { Reflect.call(m, "isFloatSignal", id) as? Boolean }.getOrNull() ?: return null
+        floatCache[id] = f
+        return f
+    }
+
+    /**
+     * The ids from [candidates] that this car's service accepts. Some SignalId_ fields exist in
+     * the class but not in the car (the service says "Invalid property Id"), and one such id
+     * makes [subscribe] refuse the whole list.
+     */
+    fun usable(candidates: Collection<Int>): List<Int> = candidates.filter { id ->
+        number(id) != null || lastError?.contains("Invalid property Id") != true
     }
 
     /** Current value of a float signal via getFloatSignalValue(id), or null if the call failed. */

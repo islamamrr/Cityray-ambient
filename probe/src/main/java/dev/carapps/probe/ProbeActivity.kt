@@ -395,58 +395,60 @@ class ProbeActivity : Activity() {
         var connected = signals.connect(car)
         var waited = 0
         while (!connected && waited < 3000) { Thread.sleep(300); waited += 300; connected = signals.isConnected }
-        val ids = signals.ids
+        if (!connected) return "Raw hunt: car_signal NOT connected: ${signals.lastError}"
+        say("Checking which of ${signals.ids.size} signals this car knows...")
+        val usable = signals.usable(signals.ids.values).toSet()
+        val ids = signals.ids.filterValues { it in usable }
+        val floats = ids.filterValues { signals.isFloat(it) == true }.keys
         val seen = HashMap<String, MutableList<String>>()
-        fun record(key: String, v: String?) {
+        val lo = HashMap<String, Double>()
+        val hi = HashMap<String, Double>()
+        fun record(name: String, v: Any?) {
             if (v == null) return
             synchronized(seen) {
-                val l = seen.getOrPut(key) { ArrayList() }
-                if (l.lastOrNull() != v && l.size < 10) l.add(v)
+                val text = if (v is Float || v is Double) String.format(Locale.US, "%.2f", (v as Number).toDouble()) else v.toString()
+                if (v is Number) {
+                    val d = v.toDouble()
+                    lo[name] = minOf(lo[name] ?: d, d); hi[name] = maxOf(hi[name] ?: d, d)
+                }
+                val l = seen.getOrPut(name) { ArrayList() }
+                if (l.lastOrNull() != text && l.size < 12) l.add(text)
             }
         }
-        var subscribed = false
-        if (connected && ids.isNotEmpty()) {
-            subscribed = signals.subscribe(ids.values) { id, v -> record("SIG " + signals.name(id), v?.toString()) }
-            if (!subscribed) {
-                val few = ids.filterKeys { EcarxSignals.INTERESTING.containsMatchIn(it) }.values
-                subscribed = signals.subscribe(few) { id, v -> record("SIG " + signals.name(id), v?.toString()) }
-            }
-        }
+        val subscribed = signals.subscribe(ids.values) { id, v -> record(signals.name(id), v) }
         val subscribeNote = if (subscribed) "subscribed" else "subscribe refused: ${signals.lastError}"
-        val props = if (androidCar.isConnected || androidCar.connect()) androidCar.propertyList() else emptyMap()
-        val end = SystemClock.elapsedRealtime() + HUNT_SECONDS * 1000L
+        val end = SystemClock.elapsedRealtime() + RAW_SECONDS * 1000L
         var passes = 0
         var readErrors = 0
         while (rawHunting && SystemClock.elapsedRealtime() < end) {
             val left = (end - SystemClock.elapsedRealtime()) / 1000
-            say("Watching ${ids.size} raw signals and ${props.size} Android properties, ${left}s left.\n" +
-                "NOW: turn the wheel left and right, then flick each indicator.")
-            if (connected) for ((name, id) in ids) {
-                val v = signals.value(id)
-                if (v == null) readErrors++ else record("SIG $name", v.toString())
+            say("Watching ${ids.size} raw signals (${floats.size} decimal), ${left}s left, pass $passes.\n" +
+                "Engine running. Drive slowly and turn the wheel fully left and right, flick each indicator.")
+            for ((name, id) in ids) {
+                val v = signals.number(id)
+                if (v == null) readErrors++ else record(name, v)
             }
-            for ((id, type) in props) record("PROP ${EcarxCar.hex(id)} $type", androidCar.anyValue(id, type))
             passes++
-            Thread.sleep(150)
         }
         signals.unsubscribe()
         return buildString {
-            append("RAW HUNT ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
-            append("car_signal: ${if (connected) "connected via ${signals.route}" else "NOT connected: ${signals.lastError}"}\n")
-            append("signals named: ${ids.size}, $subscribeNote, passes $passes, failed reads $readErrors\n")
-            append("android car: ${if (props.isEmpty()) "no properties (${androidCar.lastError ?: "empty list"})" else "${props.size} properties"}\n")
-            val snapshot = synchronized(seen) { seen.mapValues { it.value.toList() } }
-            val changed = snapshot.filterValues { it.size > 1 }.toSortedMap()
-            val hot = changed.filterKeys { EcarxSignals.INTERESTING.containsMatchIn(it) }
-            append("\nCHANGED, likely steering / indicators / driving (${hot.size})\n")
-            for ((k, v) in hot) append("$k: ${v.joinToString(" > ")}\n")
-            append("\nCHANGED, other (${changed.size - hot.size})\n")
-            for ((k, v) in changed) if (k !in hot) append("$k: ${v.joinToString(" > ")}\n")
-            val still = ids.keys.filter { EcarxSignals.INTERESTING.containsMatchIn(it) && "SIG $it" !in changed }
-            append("\nNAMED BUT DID NOT CHANGE (${still.size})\n")
-            for (n in still) append("$n=${snapshot["SIG $n"]?.lastOrNull() ?: "-"}  ")
-            append("\n\nANDROID PROPERTIES (${props.size})\n")
-            for ((id, type) in props) append("${EcarxCar.hex(id)} $type = ${snapshot["PROP ${EcarxCar.hex(id)} $type"]?.joinToString(" > ") ?: "-"}\n")
+            append("RAW HUNT 2 ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
+            append("car_signal: connected via ${signals.route}, $subscribeNote\n")
+            append("signals named ${signals.ids.size}, known to this car ${ids.size}, decimal ${floats.size}, passes $passes, failed reads $readErrors\n")
+            val snap = synchronized(seen) { seen.mapValues { it.value.toList() } }
+            val changed = snap.filterValues { it.size > 1 }.keys
+            fun line(n: String) = "$n${if (n in floats) " [dec]" else ""}: ${snap[n]!!.joinToString(" > ")}" +
+                (if (n in floats) String.format(Locale.US, "   range %.2f .. %.2f", lo[n], hi[n]) else "") + "\n"
+            val dec = changed.filter { it in floats }.sortedByDescending { (hi[it] ?: 0.0) - (lo[it] ?: 0.0) }
+            append("\nDECIMAL SIGNALS THAT CHANGED (${dec.size}), widest range first. Steering angle should swing hundreds of degrees.\n")
+            for (n in dec) append(line(n))
+            val ints = changed.filter { it !in floats }.sorted()
+            append("\nWHOLE-NUMBER SIGNALS THAT CHANGED (${ints.size})\n")
+            for (n in ints) append(line(n))
+            val still = ids.keys.filter { EcarxSignals.INTERESTING.containsMatchIn(it) && it !in changed }
+            append("\nINTERESTING NAMES THAT DID NOT CHANGE (${still.size})\n")
+            for (n in still) append("$n=${snap[n]?.lastOrNull() ?: "-"}  ")
+            append("\n")
         }
     }
 
@@ -481,7 +483,9 @@ class ProbeActivity : Activity() {
         var waited = 0
         while (!connected && waited < 3000) { Thread.sleep(300); waited += 300; connected = signals.isConnected }
         if (!connected) return "Steering watch: car_signal NOT connected: ${signals.lastError}"
-        val focus = signals.ids.filterKeys { STEER_FOCUS.containsMatchIn(it) }.entries.take(80).associate { it.key to it.value }
+        val wanted = signals.ids.filterKeys { STEER_FOCUS.containsMatchIn(it) }.entries.take(80).associate { it.key to it.value }
+        val ok = signals.usable(wanted.values).toSet()
+        val focus = wanted.filterValues { it in ok }
         val seen = HashMap<String, MutableList<String>>()
         val counts = HashMap<String, Int>()
         val errors = HashMap<String, String>()
@@ -637,7 +641,7 @@ class ProbeActivity : Activity() {
         scanRow.addView(button("Share scan") { shareScan() })
         huntButton = button("Find what changes (${HUNT_SECONDS}s)") { startHunt() }
         scanRow.addView(huntButton)
-        rawButton = button("Raw signal hunt (${HUNT_SECONDS}s)") { startRawHunt() }
+        rawButton = button("Raw signal hunt (${RAW_SECONDS}s)") { startRawHunt() }
         scanRow.addView(rawButton)
         steerButton = button("Steering watch (${STEER_SECONDS}s)") { startSteerWatch() }
         scanRow.addView(steerButton)
@@ -706,6 +710,7 @@ class ProbeActivity : Activity() {
         const val KEY_LISTEN_SECONDS = 20
         const val HUNT_SECONDS = 30
         const val STEER_SECONDS = 60
+        const val RAW_SECONDS = 90
 
         /** The short list the steering watch reads many times a second. */
         val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|SteerWhlAg|^ALat|^ALgt|^VehSpdIndcd$|^BrkPedl|^AccrPedl|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")
