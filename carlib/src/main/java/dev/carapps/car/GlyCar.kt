@@ -8,9 +8,10 @@ import android.os.Looper
  * Geely's own car API (com.geely.os.car.GlyCar), a second route to car properties.
  *
  * GUESS: the class and method names come from the button app, which uses this for
- * ignition (property 0x200100, the same id as the ECARX ignition sensor). Argument order
- * is inferred from the types, and the callback's argument layout is unknown, so the raw
- * callback arguments are passed through for Car Probe to show. Read-only.
+ * ignition (property 0x200100, the same id as the ECARX ignition sensor). In button app
+ * 2.7.4 the callback is onChangeEvent(id, ?, value): it reads the id from argument 0 and
+ * the value from argument 2. It prefers addRateSingleCarEventCallback(callback, 3, ids)
+ * and falls back to registerSingleCarEventCallback(callback, ids). Read-only.
  */
 class GlyCar(context: Context) {
 
@@ -60,16 +61,34 @@ class GlyCar(context: Context) {
                 if (method == "onChangeEvent") main.post { onEvent(args.toList()) }
                 null
             }
-            val reg = g.javaClass.methods.firstOrNull { it.name == "registerSingleCarEventCallback" && it.parameterTypes.size == 2 }
-                ?: return fail("registerSingleCarEventCallback not found")
-            reg.isAccessible = true
-            val args = reg.parameterTypes.map { if (it == IntArray::class.java) ids else cb }.toTypedArray()
-            reg.invoke(g, *args)
+            val rated = g.javaClass.methods.firstOrNull {
+                it.name == "addRateSingleCarEventCallback" && it.parameterTypes.size == 3
+            }
+            if (rated != null) {
+                rated.isAccessible = true
+                rated.invoke(g, cb, RATE, ids)
+            } else {
+                val reg = g.javaClass.methods.firstOrNull { it.name == "registerSingleCarEventCallback" && it.parameterTypes.size == 2 }
+                    ?: return fail("registerSingleCarEventCallback not found")
+                reg.isAccessible = true
+                val args = reg.parameterTypes.map { if (it == IntArray::class.java) ids else cb }.toTypedArray()
+                reg.invoke(g, *args)
+            }
             callback = cb
             true
         } catch (t: Throwable) {
             fail(EcarxCar.describe(t))
         }
+    }
+
+    /**
+     * Like [listen], but already split: [onChange] gets (property id, value). Uses the
+     * argument layout from the button app (id first, value third).
+     */
+    fun listenValues(ids: IntArray, onChange: (id: Int, value: Int) -> Unit): Boolean = listen(ids) { args ->
+        val id = (args.getOrNull(0) as? Number)?.toInt()
+        val value = (args.getOrNull(2) as? Number)?.toInt()
+        if (id != null && value != null && value != Int.MIN_VALUE) onChange(id, value)
     }
 
     fun disconnect() {
@@ -89,6 +108,9 @@ class GlyCar(context: Context) {
         // The button app tries both names; the second looks like an obfuscated build.
         val CLASS_NAMES = listOf("com.geely.os.car.GlyCar", "com.geely.p003os.car.GlyCar")
         val CALLBACK_NAMES = listOf("com.geely.os.car.IGlyCarEventCallBack", "com.geely.p003os.car.IGlyCarEventCallBack")
+
+        /** Rate the button app passes to addRateSingleCarEventCallback. */
+        const val RATE = 3
 
         /** Same id as CarSensor.IGNITION. */
         const val PROPERTY_IGNITION = 0x200100

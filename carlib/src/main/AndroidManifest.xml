@@ -8,5 +8,7 @@
     <!-- Android 11 hides other apps' providers unless we declare them. -->
     <queries>
         <provider android:authorities="com.geely.appstore.AppstoreProvider" />
+        <!-- GUESS: Autolink car proxy service (see AutolinkCarProxy). -->
+        <package android:name="com.autolink.carproxyservice" />
     </queries>
 </manifest>
