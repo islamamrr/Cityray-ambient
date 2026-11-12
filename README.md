@@ -54,7 +54,7 @@ GitHub Actions uploads it as the **Tumbler-apk** artifact.
 
 A trivia game for two teams on the touch screen, in Arabic or English.
 
-- **13 categories, 242 questions**, each in both languages. Seven are Egyptian: cinema, Ramadan TV and series, music, star nicknames, football, food and streets, and history and places. The rest are general knowledge, science, world geography, world sports, cars, and world movies and music.
+- **13 categories, 231 built-in questions**, each in both languages, plus 11 more in the first online pack. Seven are Egyptian: cinema, Ramadan TV and series, music, star nicknames, football, food and streets, and history and places. The rest are general knowledge, science, world geography, world sports, cars, and world movies and music.
 - **Take turns:** each team gets its own question. A miss lets the other team steal it for 50 points.
 - **Buzzer race:** both teams see the question and the first to tap their buzzer answers. A wrong answer hands the other team a steal.
 - **Scoring:** 100 points plus up to 50 for speed. The last two questions count double. Each team has one 50:50 per game. A tie goes to buzzer tiebreakers.
