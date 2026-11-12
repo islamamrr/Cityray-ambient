@@ -43,6 +43,31 @@ object CameraApps {
         }.sortedBy { it.pkg }
     }
 
+    /**
+     * Cameras and motion sensors Android itself offers on this head unit. If the 360 camera
+     * picture were visible here as a camera, an app could look at it. Lists only, opens nothing.
+     */
+    fun hardware(context: Context): String = buildString {
+        append("ANDROID CAMERAS\n")
+        runCatching {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            val ids = cm.cameraIdList
+            if (ids.isEmpty()) append("none\n")
+            for (id in ids) {
+                val c = cm.getCameraCharacteristics(id)
+                val facing = c.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                val sizes = c.get(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    ?.getOutputSizes(android.graphics.ImageFormat.YUV_420_888)?.take(4)?.joinToString(" ")
+                append("camera $id  facing $facing  sizes ${sizes ?: "-"}\n")
+            }
+        }.onFailure { append("failed: $it\n") }
+        append("\nANDROID SENSORS\n")
+        runCatching {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+            for (s in sm.getSensorList(android.hardware.Sensor.TYPE_ALL)) append("${s.name}  (${s.stringType})\n")
+        }.onFailure { append("failed: $it\n") }
+    }
+
     fun describe(list: List<Found>): String = buildString {
         append("CAMERA AND VEHICLE APPS ON THIS HEAD UNIT (${list.size})\n")
         for (f in list) {

@@ -650,7 +650,7 @@ class ProbeActivity : Activity() {
 
     /** Lists the head unit's camera / parking / vehicle apps, so we can see who draws the guide lines. */
     private fun findCameraApps() {
-        val report = try { CameraApps.describe(CameraApps.find(this)) } catch (t: Throwable) { "Find camera apps failed: $t" }
+        val report = try { CameraApps.hardware(this) + "\n" + CameraApps.describe(CameraApps.find(this)) } catch (t: Throwable) { "Find camera apps failed: $t" }
         lastScanText = report
         scanView.text = report + "\nTap Share scan to send this list."
     }

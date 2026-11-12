@@ -144,7 +144,19 @@ class EcarxSignals(context: Context) {
     }
 
     /** Any signal's current value, using the float call when the car says it is a float. */
-    fun number(id: Int): Number? = if (isFloat(id) == true) floatValue(id) else value(id)
+    fun number(id: Int): Number? {
+        // isFloatSignal says "float" for nearly every signal on the Cityray (2242 of 2244), so
+        // it is only a first guess: on a type error try the other call and remember which worked.
+        val asFloat = kind[id] ?: (isFloat(id) == true)
+        val first = if (asFloat) floatValue(id) else value(id)
+        if (first != null) { kind[id] = asFloat; return first }
+        if (lastError?.contains("Invalid property type") != true) return null
+        val second = if (asFloat) value(id) else floatValue(id)
+        if (second != null) kind[id] = !asFloat
+        return second
+    }
+
+    private val kind = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
 
     /**
      * Reads one signal through its own typed getter, for example getSteerWhlSnsrAg(). The
