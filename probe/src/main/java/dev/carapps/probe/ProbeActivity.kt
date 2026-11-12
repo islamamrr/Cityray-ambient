@@ -13,7 +13,9 @@ import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
+import android.text.InputType
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -63,6 +65,11 @@ class ProbeActivity : Activity() {
     private lateinit var wheelButton: Button
     private lateinit var vendorButton: Button
     private val shizuku = ShizukuSteering()
+    private lateinit var selfAdb: SelfAdb
+    private lateinit var pairPortField: EditText
+    private lateinit var pairCodeField: EditText
+    private lateinit var connectPortField: EditText
+    private lateinit var pairButton: Button
     private var hunting = false
     private lateinit var huntButton: Button
     private val huntSeen = LinkedHashMap<String, MutableList<String>>()
@@ -102,6 +109,7 @@ class ProbeActivity : Activity() {
         keys = EcarxKeys(this)
         gly = GlyCar(this)
         androidCar = AndroidCar(this)
+        selfAdb = SelfAdb(filesDir)
         carProxy = AutolinkCarProxy(this)
         signals = EcarxSignals(this)
         catalog = EcarxCatalog.get(this)
@@ -657,13 +665,13 @@ class ProbeActivity : Activity() {
      * app route (Android car API), which we expect to be refused. Step 2 reads through Shizuku
      * as shell for VENDOR_SECONDS. Turn the wheel during it. Read-only.
      */
-    private fun startVendorSteering() {
+    private fun startVendorSteering(ownAdbPort: Int? = null) {
         if (rawHunting || hunting) return
         rawHunting = true
         vendorButton.isEnabled = false
         scanView.text = "Vendor steering: checking routes..."
         Thread {
-            val report = try { runVendorSteering() } catch (t: Throwable) { "Vendor steering failed: $t" }
+            val report = try { runVendorSteering(ownAdbPort) } catch (t: Throwable) { "Vendor steering failed: $t" }
             val file = runCatching {
                 File(getExternalFilesDir(null) ?: filesDir,
                     "vsteer-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt").also { it.writeText(report) }
@@ -677,7 +685,7 @@ class ProbeActivity : Activity() {
         }.start()
     }
 
-    private fun runVendorSteering(): String {
+    private fun runVendorSteering(ownAdbPort: Int?): String {
         val out = StringBuilder("VENDOR STEERING ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
         val ids = listOf("ARHUD angle" to VendorSteering.ARHUD_ANGLE, "APA pinion" to VendorSteering.APA_PINION_ANGLE)
 
@@ -690,8 +698,8 @@ class ProbeActivity : Activity() {
             out.append(if (v != null) "READ raw $v = ${fmtDeg(VendorSteering.degrees(v))}\n" else "refused: ${androidCar.lastError}\n")
         }
 
-        out.append("\n2) Shizuku (shell route)\n")
-        when (shizuku.state()) {
+        out.append(if (ownAdbPort != null) "\n2) Own adb on this head unit (port $ownAdbPort, no laptop, no Shizuku)\n" else "\n2) Shizuku (shell route)\n")
+        if (ownAdbPort == null) when (shizuku.state()) {
             ShizukuSteering.State.NOT_RUNNING -> {
                 out.append("   Shizuku is not running. Open Shizuku, start it with Wireless debugging, then tap this button again.\n")
                 return out.toString()
@@ -713,7 +721,7 @@ class ProbeActivity : Activity() {
         val start = SystemClock.elapsedRealtime()
         var error: String? = null
         val reader = Thread {
-            error = shizuku.run(VendorSteering.ARHUD_ANGLE) { raw ->
+            val onReading = { raw: Int ->
                 val deg = VendorSteering.degrees(raw)
                 synchronized(log) {
                     samples++
@@ -727,6 +735,8 @@ class ProbeActivity : Activity() {
                     maxDeg = maxOf(maxDeg, deg)
                 }
             }
+            error = if (ownAdbPort != null) selfAdb.run(ownAdbPort, VendorSteering.ARHUD_ANGLE, onReading)
+            else shizuku.run(VendorSteering.ARHUD_ANGLE, onReading)
         }.apply { start() }
 
         val end = start + VENDOR_SECONDS * 1000L
@@ -736,13 +746,14 @@ class ProbeActivity : Activity() {
             val secs = (SystemClock.elapsedRealtime() - start) / 1000.0
             val now = raw?.let { val d = VendorSteering.degrees(it); "${fmtDeg(d)}  ${if (d > 5) "LEFT" else if (d < -5) "RIGHT" else "straight"}" } ?: "waiting for the first reading..."
             main.post {
-                scanView.text = "Vendor steering via Shizuku, ${left}s left. Turn the wheel.\n\n" +
+                scanView.text = "Vendor steering via ${if (ownAdbPort != null) "own adb" else "Shizuku"}, ${left}s left. Turn the wheel.\n\n" +
                     "STEERING  $now\n" +
                     String.format(Locale.US, "%d readings, %.1f per second", n, if (secs > 0) n / secs else 0.0)
             }
             Thread.sleep(100)
         }
         shizuku.stop()
+        selfAdb.stop()
         reader.join(2000)
         val secs = (SystemClock.elapsedRealtime() - start) / 1000.0
         synchronized(log) {
@@ -752,6 +763,23 @@ class ProbeActivity : Activity() {
             out.append("\nChanges (time, raw, angle):\n").append(log)
         }
         return out.toString()
+    }
+
+    /** One-time pairing with this head unit's own wireless debugging (SelfAdb). */
+    private fun pairSelf() {
+        val port = pairPortField.text.toString().toIntOrNull()
+        val code = pairCodeField.text.toString().trim()
+        if (port == null || code.length < 4) { scanView.text = "Type the pairing port and the pairing code first."; return }
+        pairButton.isEnabled = false
+        scanView.text = "Pairing with 127.0.0.1:$port ..."
+        Thread {
+            val err = selfAdb.pair(port, code)
+            main.post {
+                pairButton.isEnabled = true
+                scanView.text = if (err == null) "Paired. Now type the connect port (Wireless debugging screen) and tap Steering via own adb."
+                else "Pairing $err\n\nThe pairing dialog must still be open on the Wireless debugging screen; its port and code change each time."
+            }
+        }.start()
     }
 
     private fun fmtDeg(d: Double) = String.format(Locale.US, "%+.1f deg", d)
@@ -857,6 +885,28 @@ class ProbeActivity : Activity() {
         vendorButton = button("Vendor steering (${VENDOR_SECONDS}s)") { startVendorSteering() }
         appRow.addView(vendorButton)
         root.addView(appRow, spaced())
+
+        // Own adb: no laptop and no Shizuku. Numbers come from the head unit's Developer options.
+        root.addView(text(13f, Color.LTGRAY).apply {
+            text = "Own adb steering (no laptop). In Developer options > Wireless debugging: tap \"Pair device with pairing code\" and type its port and 6-digit code here, then tap Pair. After that, type the port shown on the Wireless debugging screen (IP address & Port) and tap Steering via own adb."
+        }, spaced())
+        val ownRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START }
+        fun field(hint: String) = EditText(this).apply {
+            this.hint = hint
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            minEms = 6
+        }
+        pairPortField = field("pairing port"); ownRow.addView(pairPortField)
+        pairCodeField = field("pairing code"); ownRow.addView(pairCodeField)
+        pairButton = button("Pair") { pairSelf() }; ownRow.addView(pairButton)
+        connectPortField = field("connect port"); ownRow.addView(connectPortField)
+        ownRow.addView(button("Steering via own adb (${VENDOR_SECONDS}s)") {
+            val port = connectPortField.text.toString().toIntOrNull()
+            if (port == null) scanView.text = "Type the connect port first (Wireless debugging screen, IP address & Port)."
+            else startVendorSteering(port)
+        })
+        root.addView(ownRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
         }.also { root.addView(it, spaced()) }
