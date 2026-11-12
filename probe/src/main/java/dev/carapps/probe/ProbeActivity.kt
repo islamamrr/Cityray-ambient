@@ -33,6 +33,7 @@ import dev.carapps.car.CarSensor
 import dev.carapps.car.EcarxCar
 import dev.carapps.car.EcarxKeys
 import dev.carapps.car.WheelTurn
+import dev.carapps.car.VendorSteering
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +61,8 @@ class ProbeActivity : Activity() {
     @Volatile private var rawHunting = false
     @Volatile private var packing = false
     private lateinit var wheelButton: Button
+    private lateinit var vendorButton: Button
+    private val shizuku = ShizukuSteering()
     private var hunting = false
     private lateinit var huntButton: Button
     private val huntSeen = LinkedHashMap<String, MutableList<String>>()
@@ -126,6 +129,7 @@ class ProbeActivity : Activity() {
         androidCar.disconnect()
         carProxy.disconnect()
         rawHunting = false
+        shizuku.stop()
         signals.disconnect()
     }
 
@@ -648,6 +652,110 @@ class ProbeActivity : Activity() {
             "samples $samples\n\n$log"
     }
 
+    /**
+     * Steering angle from the HAL's vendor properties (VendorSteering). Step 1 tries the normal
+     * app route (Android car API), which we expect to be refused. Step 2 reads through Shizuku
+     * as shell for VENDOR_SECONDS. Turn the wheel during it. Read-only.
+     */
+    private fun startVendorSteering() {
+        if (rawHunting || hunting) return
+        rawHunting = true
+        vendorButton.isEnabled = false
+        scanView.text = "Vendor steering: checking routes..."
+        Thread {
+            val report = try { runVendorSteering() } catch (t: Throwable) { "Vendor steering failed: $t" }
+            val file = runCatching {
+                File(getExternalFilesDir(null) ?: filesDir,
+                    "vsteer-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt").also { it.writeText(report) }
+            }.getOrNull()
+            main.post {
+                lastScanText = report
+                scanView.text = report + (file?.let { "\nSaved to ${it.absolutePath}" } ?: "")
+                rawHunting = false
+                vendorButton.isEnabled = true
+            }
+        }.start()
+    }
+
+    private fun runVendorSteering(): String {
+        val out = StringBuilder("VENDOR STEERING ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n")
+        val ids = listOf("ARHUD angle" to VendorSteering.ARHUD_ANGLE, "APA pinion" to VendorSteering.APA_PINION_ANGLE)
+
+        out.append("\n1) Android car API (normal app route)\n")
+        val listed = runCatching { if (androidCar.connect()) androidCar.propertyList() else emptyMap() }.getOrDefault(emptyMap())
+        if (!androidCar.isConnected) out.append("   car service not connected: ${androidCar.lastError}\n")
+        for ((label, id) in ids) {
+            val v = VendorSteering.readViaAndroid(androidCar, id)
+            out.append("   $label ${EcarxCar.hex(id)}: listed=${id in listed}  ")
+            out.append(if (v != null) "READ raw $v = ${fmtDeg(VendorSteering.degrees(v))}\n" else "refused: ${androidCar.lastError}\n")
+        }
+
+        out.append("\n2) Shizuku (shell route)\n")
+        when (shizuku.state()) {
+            ShizukuSteering.State.NOT_RUNNING -> {
+                out.append("   Shizuku is not running. Open Shizuku, start it with Wireless debugging, then tap this button again.\n")
+                return out.toString()
+            }
+            ShizukuSteering.State.NO_PERMISSION -> {
+                main.post { runCatching { shizuku.requestPermission(SHIZUKU_REQUEST) } }
+                out.append("   Car Probe has no Shizuku permission yet. Allow it in the dialog, then tap this button again.\n")
+                return out.toString()
+            }
+            ShizukuSteering.State.READY -> out.append("   Shizuku running as uid ${shizuku.uid()}\n")
+        }
+
+        var samples = 0
+        var changes = 0
+        var lastRaw: Int? = null
+        var minDeg = Double.MAX_VALUE
+        var maxDeg = -Double.MAX_VALUE
+        val log = StringBuilder()
+        val start = SystemClock.elapsedRealtime()
+        var error: String? = null
+        val reader = Thread {
+            error = shizuku.run(VendorSteering.ARHUD_ANGLE) { raw ->
+                val deg = VendorSteering.degrees(raw)
+                synchronized(log) {
+                    samples++
+                    if (raw != lastRaw) {
+                        changes++
+                        if (changes <= 300) log.append(String.format(Locale.US, "%6.2fs  raw %5d  %s\n",
+                            (SystemClock.elapsedRealtime() - start) / 1000.0, raw, fmtDeg(deg)))
+                    }
+                    lastRaw = raw
+                    minDeg = minOf(minDeg, deg)
+                    maxDeg = maxOf(maxDeg, deg)
+                }
+            }
+        }.apply { start() }
+
+        val end = start + VENDOR_SECONDS * 1000L
+        while (rawHunting && reader.isAlive && SystemClock.elapsedRealtime() < end) {
+            val left = (end - SystemClock.elapsedRealtime()) / 1000
+            val (raw, n) = synchronized(log) { lastRaw to samples }
+            val secs = (SystemClock.elapsedRealtime() - start) / 1000.0
+            val now = raw?.let { val d = VendorSteering.degrees(it); "${fmtDeg(d)}  ${if (d > 5) "LEFT" else if (d < -5) "RIGHT" else "straight"}" } ?: "waiting for the first reading..."
+            main.post {
+                scanView.text = "Vendor steering via Shizuku, ${left}s left. Turn the wheel.\n\n" +
+                    "STEERING  $now\n" +
+                    String.format(Locale.US, "%d readings, %.1f per second", n, if (secs > 0) n / secs else 0.0)
+            }
+            Thread.sleep(100)
+        }
+        shizuku.stop()
+        reader.join(2000)
+        val secs = (SystemClock.elapsedRealtime() - start) / 1000.0
+        synchronized(log) {
+            out.append(String.format(Locale.US, "   %d readings in %.1f s (%.1f per second), %d changes\n", samples, secs, if (secs > 0) samples / secs else 0.0, changes))
+            if (samples > 0) out.append("   range ${fmtDeg(minDeg)} .. ${fmtDeg(maxDeg)} (left positive)\n")
+            error?.let { out.append("   error: $it\n") }
+            out.append("\nChanges (time, raw, angle):\n").append(log)
+        }
+        return out.toString()
+    }
+
+    private fun fmtDeg(d: Double) = String.format(Locale.US, "%+.1f deg", d)
+
     /** Lists the head unit's camera / parking / vehicle apps, so we can see who draws the guide lines. */
     private fun findCameraApps() {
         val report = try { CameraApps.hardware(this) + "\n" + CameraApps.describe(CameraApps.find(this)) } catch (t: Throwable) { "Find camera apps failed: $t" }
@@ -746,6 +854,8 @@ class ProbeActivity : Activity() {
         appRow.addView(button("Pack and share their APKs") { packCameraApps() })
         wheelButton = button("Wheel turn watch (${WHEEL_SECONDS}s)") { startWheelWatch() }
         appRow.addView(wheelButton)
+        vendorButton = button("Vendor steering (${VENDOR_SECONDS}s)") { startVendorSteering() }
+        appRow.addView(vendorButton)
         root.addView(appRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
@@ -813,6 +923,8 @@ class ProbeActivity : Activity() {
         const val STEER_SECONDS = 60
         const val RAW_SECONDS = 90
         const val WHEEL_SECONDS = 90
+        const val VENDOR_SECONDS = 60
+        const val SHIZUKU_REQUEST = 42
 
         /** The short list the steering watch reads many times a second. */
         val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|SteerWhlAg|^ALat|^ALgt|^VehSpdIndcd$|^BrkPedl|^AccrPedl|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")

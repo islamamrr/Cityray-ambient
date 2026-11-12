@@ -11,8 +11,8 @@ android {
         applicationId = "dev.carapps.probe"
         minSdk = 26
         targetSdk = 30
-        versionCode = 15
-        versionName = "0.15"
+        versionCode = 16
+        versionName = "0.16"
     }
 
     signingConfigs {
@@ -41,4 +41,7 @@ android {
 
 dependencies {
     implementation(project(":carlib"))
+    // Shell-uid access for the vendor steering read (Probe only, not carlib).
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
