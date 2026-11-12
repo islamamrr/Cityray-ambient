@@ -32,6 +32,7 @@ import dev.carapps.car.Zone
 import dev.carapps.car.CarSensor
 import dev.carapps.car.EcarxCar
 import dev.carapps.car.EcarxKeys
+import dev.carapps.car.WheelTurn
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,6 +59,7 @@ class ProbeActivity : Activity() {
     private lateinit var steerButton: Button
     @Volatile private var rawHunting = false
     @Volatile private var packing = false
+    private lateinit var wheelButton: Button
     private var hunting = false
     private lateinit var huntButton: Button
     private val huntSeen = LinkedHashMap<String, MutableList<String>>()
@@ -581,6 +583,71 @@ class ProbeActivity : Activity() {
         }
     }
 
+    /**
+     * Steering estimate from the four wheel tooth counters (WheelTurn), since the car does not
+     * send the steering angle to the head unit. Drive slowly through turns during it. Read-only.
+     */
+    private fun startWheelWatch() {
+        if (rawHunting || hunting) return
+        if (!car.isStarted) { scanView.text = "Tap Reconnect first. ${car.lastError ?: ""}"; return }
+        rawHunting = true
+        wheelButton.isEnabled = false
+        scanView.text = "Connecting to raw signals..."
+        Thread {
+            val report = try { runWheelWatch() } catch (t: Throwable) { "Wheel turn watch failed: $t" }
+            val file = runCatching {
+                File(getExternalFilesDir(null) ?: filesDir,
+                    "wheel-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".txt").also { it.writeText(report) }
+            }.getOrNull()
+            main.post {
+                lastScanText = report
+                scanView.text = report + (file?.let { "\nSaved to ${it.absolutePath}" } ?: "")
+                rawHunting = false
+                wheelButton.isEnabled = true
+            }
+        }.start()
+    }
+
+    private fun runWheelWatch(): String {
+        var connected = signals.connect(car)
+        var waited = 0
+        while (!connected && waited < 3000) { Thread.sleep(300); waited += 300; connected = signals.isConnected }
+        if (!connected) return "Wheel turn watch: car_signal NOT connected: ${signals.lastError}"
+        val names = listOf(WheelTurn.FRONT_LEFT, WheelTurn.FRONT_RIGHT, WheelTurn.REAR_LEFT, WheelTurn.REAR_RIGHT, EcarxSignals.SPEED, EcarxSignals.TURN_STATE)
+        val ids = names.map { signals.ids[it] ?: return "Wheel turn watch: signal $it not on this car" }
+        signals.subscribe(ids) { _, _ -> }
+        val turn = WheelTurn()
+        val log = StringBuilder()
+        val start = SystemClock.elapsedRealtime()
+        val end = start + WHEEL_SECONDS * 1000L
+        var last: WheelTurn.Estimate? = null
+        var samples = 0
+        while (rawHunting && SystemClock.elapsedRealtime() < end) {
+            val v = ids.map { signals.number(it) }
+            val c = v.take(4).map { it?.toInt() }
+            if (c.all { it != null }) {
+                val e = turn.update(c[0]!!, c[1]!!, c[2]!!, c[3]!!)
+                if (e != null) {
+                    last = e
+                    samples++
+                    val t = (SystemClock.elapsedRealtime() - start) / 1000.0
+                    if (samples <= 400) log.append(String.format(Locale.US, "%5.1fs  speed %5.2f  indicator %s  teeth L %3d R %3d  radius %7.1f m  wheel %6.1f deg\n",
+                        t, v[4]?.toDouble() ?: -1.0, v[5]?.toInt() ?: -1, e.rearLeftTeeth, e.rearRightTeeth,
+                        if (e.radiusM.isInfinite()) 9999.0 else e.radiusM, e.steeringDeg))
+                }
+            }
+            val left = (end - SystemClock.elapsedRealtime()) / 1000
+            val shown = last?.let { String.format(Locale.US, "steering about %.0f deg (%s)", it.steeringDeg,
+                if (it.steeringDeg > 20) "left" else if (it.steeringDeg < -20) "right" else "straight") } ?: "waiting for the wheels to roll"
+            main.post { scanView.text = "Wheel turn watch, ${left}s left.\nDrive slowly: straight, then a full-lock left turn, then a full-lock right turn.\n\n$shown\ncounters ${c.joinToString(" ")}" }
+            Thread.sleep(50)
+        }
+        signals.unsubscribe()
+        return "WHEEL TURN WATCH ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}  ${Build.DISPLAY}\n" +
+            "Estimate from rear wheel tooth counters. GUESS constants: track ${turn.trackM} m, wheelbase ${turn.wheelbaseM} m, steering ratio ${turn.steeringRatio}. Left positive.\n" +
+            "samples $samples\n\n$log"
+    }
+
     /** Lists the head unit's camera / parking / vehicle apps, so we can see who draws the guide lines. */
     private fun findCameraApps() {
         val report = try { CameraApps.describe(CameraApps.find(this)) } catch (t: Throwable) { "Find camera apps failed: $t" }
@@ -677,6 +744,8 @@ class ProbeActivity : Activity() {
         val appRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START }
         appRow.addView(button("Find camera apps") { findCameraApps() })
         appRow.addView(button("Pack and share their APKs") { packCameraApps() })
+        wheelButton = button("Wheel turn watch (${WHEEL_SECONDS}s)") { startWheelWatch() }
+        appRow.addView(wheelButton)
         root.addView(appRow, spaced())
         scanView = text(14f, Color.rgb(255, 180, 140), mono = true).apply {
             text = "Scan asks the car about every id ECARX names and lists the ones it supports. Read-only, takes under a minute."
@@ -743,6 +812,7 @@ class ProbeActivity : Activity() {
         const val HUNT_SECONDS = 30
         const val STEER_SECONDS = 60
         const val RAW_SECONDS = 90
+        const val WHEEL_SECONDS = 90
 
         /** The short list the steering watch reads many times a second. */
         val STEER_FOCUS = Regex("^SteerWhlSnsr|^SteerActReGroupAg|SteerWhlAg|^ALat|^ALgt|^VehSpdIndcd$|^BrkPedl|^AccrPedl|PinionSteer|WhlAg|^VehSpdLgt(A|Qf|Cntr)$|^WhlSpdCircuml.*(Le|Ri)$|^EngNSafeEngN$|YawRate$|^IndcrSts$|TurnIndr(Le|Ri)$|^ALat1|^ALgt1")
